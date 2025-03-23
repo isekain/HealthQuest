@@ -1,0 +1,9 @@
+[package]
+name = "HealthQuest"
+version = "1.0.0"
+
+[dependencies]
+AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework", rev = "main" }
+
+[addresses]
+health_quest = "0x83c227c6d53dec7f3e74c8a8d52241ac7938e5d847fb5eea1eb43961f96c5d81" 
