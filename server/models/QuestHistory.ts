@@ -31,6 +31,18 @@ const QuestHistorySchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  category: {
+    type: String,
+    default: 'daily'
+  },
+  difficulty: {
+    type: String,
+    default: 'easy'
+  },
+  estimatedTime: {
+    type: Number,
+    default: 30
+  },
   rewardsItems: {
     type: [String],
     default: []

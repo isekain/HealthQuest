@@ -7,7 +7,8 @@ import { NFTStats } from '../models/NFTStats';
 import { v4 as uuidv4 } from 'uuid';
 import OpenAI from 'openai';
 import { QuestActivity } from '../models/QuestActivity';
-
+import dotenv from 'dotenv';
+dotenv.config();
 // Interface for User model
 interface UserType {
   walletAddress: string;
@@ -24,10 +25,20 @@ interface QuestHistoryType {
   [key: string]: any;
 }
 
+interface Exercise {
+  name?: string;
+  time?: string;
+  description?: string;
+}
+
+interface WorkoutSection {
+  section?: string;
+  duration?: number;
+  exercises?: Exercise[];
+}
+
 // Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '', // Use your environment variable
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const router = express.Router();
 
@@ -59,7 +70,9 @@ router.get('/server', authenticate, async (req, res) => {
     }).distinct('questId');
     
     // Format and return quests
-    const formattedQuests = quests.map(quest => ({
+    const formattedQuests = quests.map(quest => {
+      console.log('Quest workoutDetails:', quest.workoutDetails);
+      return {
       id: quest.questId,
       title: quest.title,
       description: quest.description,
@@ -77,9 +90,18 @@ router.get('/server', authenticate, async (req, res) => {
       completed: completedQuestIds.includes(quest.questId),
       expiresAt: quest.expiresAt,
       timeLeft: Math.max(0, Math.floor((quest.expiresAt.getTime() - Date.now()) / 1000)),
-      locked: false // Server quests are available to all users
-    }));
+        locked: false, // Server quests are available to all users
+        type: 'server',
+        active: quest.active || false,
+        startedAt: quest.startedAt || null,
+        estimatedTime: quest.estimatedTime || 30,
+        completionCriteria: quest.completionCriteria || 'manual',
+        completionInstructions: quest.completionInstructions || '',
+        workoutDetails: quest.workoutDetails || []
+      };
+    });
     
+    console.log('Formatted quests:', formattedQuests);
     res.json(formattedQuests);
   } catch (error) {
     console.error('Error fetching server quests:', error);
@@ -101,17 +123,16 @@ router.get('/personal', authenticate, async (req, res) => {
     const quests = await Quest.find({
       type: 'personal',
       userWallet: walletAddress, // Changed from targetWallet to userWallet to match schema
-      expiresAt: { $gt: new Date() }
+      expiresAt: { $gt: new Date() },
+      completed: false // Chỉ lấy những quest chưa hoàn thành
     });
     
-    // Get completed quests for this user
-    const completedQuestIds = await QuestHistory.find({
-      userWallet: walletAddress,
-      questType: 'personal'
-    }).distinct('questId');
+   
     
     // Format and return quests
-    const formattedQuests = quests.map(quest => ({
+    const formattedQuests = quests.map(quest => {
+      console.log('Quest workoutDetails:', quest.workoutDetails);
+      return {
       id: quest.questId,
       title: quest.title,
       description: quest.description,
@@ -126,12 +147,21 @@ router.get('/personal', authenticate, async (req, res) => {
         items: quest.rewards?.items || []
       },
       energyCost: 0, // Personal quests don't consume energy
-      completed: completedQuestIds.includes(quest.questId),
+        completed: false,
+        active: quest.active || false,
+        startedAt: quest.startedAt || null,
       expiresAt: quest.expiresAt,
       timeLeft: Math.max(0, Math.floor((quest.expiresAt.getTime() - Date.now()) / 1000)),
-      locked: false
-    }));
+        estimatedTime: quest.estimatedTime || 30,
+        completionCriteria: quest.completionCriteria || 'manual',
+        completionInstructions: quest.completionInstructions || '',
+        workoutDetails: quest.workoutDetails || [],
+        locked: false,
+        type: 'personal'
+      };
+    });
     
+    console.log('Formatted quests:', formattedQuests);
     res.json(formattedQuests);
   } catch (error) {
     console.error('Error fetching personal quests:', error);
@@ -139,20 +169,23 @@ router.get('/personal', authenticate, async (req, res) => {
   }
 });
 
-// Route for generating a personal quest
-// @route POST /api/quests/personal
-// @access Private
 router.post('/personal', authenticate, async (req, res) => {
   try {
     const { walletAddress } = req.body;
-    
-    // Validate wallet address
     if (!walletAddress) {
       return res.status(400).json({ error: 'Wallet address is required' });
     }
     
-    // Check if user has energy
-    const nftStats = await NFTStats.findOne({ userWallet: walletAddress });
+    // Lấy user và năng lượng
+    const [user, nftStats] = await Promise.all([
+      User.findOne({ walletAddress }),
+      NFTStats.findOne({ userWallet: walletAddress })
+    ]);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
     if (!nftStats || nftStats.energy < 25) {
       return res.status(400).json({ 
         error: 'Not enough energy to generate a personal quest', 
@@ -160,60 +193,28 @@ router.post('/personal', authenticate, async (req, res) => {
       });
     }
     
-    // Check if user already has an active quest
-    const activeQuest = await Quest.findOne({ 
-      type: 'personal',
-      userWallet: walletAddress, // Changed from targetWallet to userWallet
-      active: true
-    });
-    
-    if (activeQuest) {
-      return res.status(400).json({ 
-        error: 'You already have an active quest. Complete it before starting a new one.',
-        activeQuestId: activeQuest.questId
-      });
+    // Call AI to create quest
+    const personalQuest = await generatePersonalQuest(user as UserType, []);
+    if (!personalQuest) {
+      return res.status(500).json({ error: 'Failed to generate quest information' });
     }
-    
-    // Check if user already has 5 personal quests
-    const personalQuestCount = await Quest.countDocuments({
-      type: 'personal',
-      userWallet: walletAddress, // Changed from targetWallet to userWallet
-      completed: false
-    });
-    
-    if (personalQuestCount >= 5) {
-      return res.status(400).json({ error: 'You already have 5 personal quests. Complete or wait for some to expire before generating more.' });
+
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    // Ensure completionCriteria is always valid
+    const validCompletionCriteria = ['manual', 'automatic', 'verification'];
+    if (!validCompletionCriteria.includes(personalQuest.completionCriteria)) {
+      personalQuest.completionCriteria = 'manual';
     }
-    
-    // Get user activity history for context
-    const activityHistory = await QuestHistory.find({ 
-      userWallet: walletAddress,
-      questType: 'personal'
-    })
-      .sort({ completedAt: -1 })
-      .limit(10);
-    
-    // Get user profile for personalization
-    const user = await User.findOne({ walletAddress });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+
+    // Ensure completionInstructions has a value
+    if (!personalQuest.completionInstructions || personalQuest.completionInstructions.trim() === '') {
+      personalQuest.completionInstructions = `Complete ${personalQuest.target} ${personalQuest.unit} of ${personalQuest.objective.toLowerCase()}`;
     }
-    
-    // Generate personal quest with AI
-    const personalQuest = await generatePersonalQuest(user as UserType, activityHistory as QuestHistoryType[]);
-    
-    // Deduct energy cost
-    await NFTStats.updateOne(
-      { userWallet: walletAddress },
-      { $inc: { energy: -25 } }
-    );
-    
-    // Create quest with 1 hour expiration instead of 24 hours
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
-    
-    const newQuest = new Quest({
+
+    // Save quest to MongoDB
+    const newQuest = await Quest.create({
       questId: uuidv4(),
-      userId: user._id,
       userWallet: walletAddress,
       type: 'personal',
       title: personalQuest.title,
@@ -223,21 +224,27 @@ router.post('/personal', authenticate, async (req, res) => {
       objective: personalQuest.objective,
       target: personalQuest.target,
       unit: personalQuest.unit,
-      rewards: personalQuest.rewards,
-      energyCost: 25, // Set energy cost to 25
-      completionCriteria: personalQuest.completionCriteria || 'manual',
-      completionInstructions: personalQuest.completionInstructions || '',
       expiresAt,
-      estimatedTime: personalQuest.estimatedTime || 30
+      energyCost: 0, 
+      estimatedTime: personalQuest.estimatedTime || 30,
+      rewards: {
+        xp: personalQuest.rewards.xp,
+        gold: personalQuest.rewards.gold,
+        items: personalQuest.rewards.items || []
+      },
+      completionCriteria: personalQuest.completionCriteria,
+      completionInstructions: personalQuest.completionInstructions,
+      workoutDetails: personalQuest.workoutDetails || [],
+      aiGenerated: true,
+      active: false,
+      completed: false
     });
-    
-    await newQuest.save();
-    
-    // Get updated NFT stats
-    const updatedNftStats = await NFTStats.findOne({ userWallet: walletAddress });
-    
-    res.json({
-      success: true,
+
+    // Update user's energy
+    nftStats.energy -= 25;
+    await nftStats.save();
+    // console.log('newQuest log ne:',newQuest);
+    res.status(200).json({ 
       quest: {
         id: newQuest.questId,
         title: newQuest.title,
@@ -247,18 +254,25 @@ router.post('/personal', authenticate, async (req, res) => {
         objective: newQuest.objective,
         target: newQuest.target,
         unit: newQuest.unit,
-        progress: 0,
         rewards: newQuest.rewards,
-        energyCost: 25,
+        energyCost: 0,
+        completed: false,
         expiresAt: newQuest.expiresAt,
+        timeLeft: Math.max(0, Math.floor((newQuest.expiresAt.getTime() - Date.now()) / 1000)),
         estimatedTime: newQuest.estimatedTime,
-        type: 'personal'
+        type: 'personal',
+        completionCriteria: newQuest.completionCriteria,
+        completionInstructions: newQuest.completionInstructions,
+        workoutDetails: newQuest.workoutDetails || []
       },
-      currentEnergy: updatedNftStats?.energy || 0
+      currentEnergy: nftStats.energy,
+      newQuest
     });
-  } catch (error) {
-    console.error('Error generating personal quest:', error);
-    res.status(500).json({ error: 'Failed to generate personal quest' });
+
+  } catch (error: unknown) {
+    console.error('❌ Error creating personal quest:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: errorMessage });
   }
 });
 
@@ -293,6 +307,15 @@ router.post('/generate-server', authenticate, async (req, res) => {
         };
         completionCriteria?: string;
         completionInstructions?: string;
+        workoutDetails?: Array<{
+          section: string;
+          duration: number;
+          exercises: Array<{
+            name: string;
+            time: string;
+            description: string;
+          }>;
+        }>;
       }) => {
         return await Quest.create({
           questId: uuidv4(),
@@ -316,7 +339,8 @@ router.post('/generate-server', authenticate, async (req, res) => {
           },
           aiGenerated: true,
           completionCriteria: quest.completionCriteria || 'manual',
-          completionInstructions: quest.completionInstructions || ''
+          completionInstructions: quest.completionInstructions || '',
+          workoutDetails: quest.workoutDetails || []
         });
       })
     );
@@ -472,9 +496,6 @@ router.post('/:questId/complete', authenticate, async (req, res) => {
   }
 });
 
-// Route for starting a quest
-// @route PUT /api/quests/:questId/start
-// @access Private
 router.put('/:questId/start', authenticate, async (req, res) => {
   try {
     const { questId } = req.params;
@@ -512,9 +533,19 @@ router.put('/:questId/start', authenticate, async (req, res) => {
     quest.active = true;
     quest.startedAt = new Date();
     await quest.save();
-    
+    await QuestActivity.create({
+      userWallet: walletAddress,
+      questId: quest.questId,
+      questType: quest.type,
+      questTitle: quest.title,
+      energyCost: quest.energyCost,
+      rewardsXp: quest.rewards?.xp || 0,
+      rewardsGold: quest.rewards?.gold || 0,
+      rewardsItems: quest.rewards?.items || [],
+      completedAt: new Date()
+    });
     // Return updated quest
-    res.json({
+    const questResponse = {
       success: true,
       quest: {
         id: quest.questId,
@@ -525,16 +556,20 @@ router.put('/:questId/start', authenticate, async (req, res) => {
         objective: quest.objective,
         target: quest.target,
         unit: quest.unit,
-        progress: quest.progress,
+        progress: 0,
         rewards: quest.rewards,
         energyCost: quest.energyCost,
         expiresAt: quest.expiresAt,
         estimatedTime: quest.estimatedTime,
         active: true,
         startedAt: quest.startedAt,
-        type: quest.type
+        type: quest.type,
+        workoutDetails: quest.workoutDetails || [], 
+        completionCriteria: quest.completionCriteria || 'manual',
+        completionInstructions: quest.completionInstructions || ''
       }
-    });
+    };
+    res.json(questResponse);
   } catch (error) {
     console.error('Error starting quest:', error);
     res.status(500).json({ error: 'Failed to start quest' });
@@ -586,11 +621,12 @@ router.put('/:questId/complete-active', authenticate, async (req, res) => {
     quest.completed = true;
     quest.completedAt = new Date();
     quest.active = false;
-    quest.progress = quest.target; // Set progress to target
+    quest.progress = quest.target;
     await quest.save();
     
     // Record quest activity
-    await QuestActivity.create({
+
+    await QuestHistory.create({
       userWallet: walletAddress,
       questId: quest.questId,
       questType: quest.type,
@@ -599,12 +635,19 @@ router.put('/:questId/complete-active', authenticate, async (req, res) => {
       rewardsXp: quest.rewards?.xp || 0,
       rewardsGold: quest.rewards?.gold || 0,
       rewardsItems: quest.rewards?.items || [],
+      category: quest.category,
+      difficulty: quest.difficulty,
+      estimatedTime: quest.estimatedTime,
       completedAt: new Date()
     });
+    await Quest.deleteOne({ questId, userWallet: walletAddress });
+    await QuestActivity.deleteOne({ questId, userWallet: walletAddress });
     
     // Add XP to NFT stats
     let levelUp = false;
+    let randomStatPoints = Math.floor(Math.random() * 5) + 1;
     if (quest.rewards?.xp && quest.rewards.xp > 0) {
+      
       const nftStats = await NFTStats.findOne({ userWallet: walletAddress });
       
       if (nftStats) {
@@ -620,7 +663,7 @@ router.put('/:questId/complete-active', authenticate, async (req, res) => {
           await NFTStats.updateOne(
             { userWallet: walletAddress },
             { 
-              $inc: { level: 1, statsPoints: 3 },
+              $inc: { level: 1, statsPoints: 3 + randomStatPoints }, // Thêm random luôn khi lên level
               $set: { 
                 xp: updatedNft.xp - (updatedNft.xpToNextLevel || 100),
                 xpToNextLevel: Math.floor((updatedNft.xpToNextLevel || 100) * 1.5)
@@ -628,6 +671,10 @@ router.put('/:questId/complete-active', authenticate, async (req, res) => {
             }
           );
           levelUp = true;
+        } else {
+          await NFTStats.updateOne(
+            { userWallet: walletAddress },
+            { $inc: { statsPoints: randomStatPoints } });
         }
       }
     }
@@ -649,7 +696,8 @@ router.put('/:questId/complete-active', authenticate, async (req, res) => {
       rewards: {
         xp: quest.rewards?.xp || 0,
         gold: quest.rewards?.gold || 0,
-        items: quest.rewards?.items || []
+        items: quest.rewards?.items || [],
+        statsPoints: randomStatPoints
       },
       levelUp,
       currentEnergy: finalNftStats?.energy || 0
@@ -662,15 +710,16 @@ router.put('/:questId/complete-active', authenticate, async (req, res) => {
 
 // AI QUEST GENERATION FUNCTIONS
 async function generatePersonalQuest(user: UserType, activityHistory: QuestHistoryType[]) {
-  try {
-    // Summarize recent activity for the prompt
-    const recentActivities = activityHistory.map(h => h.questTitle).join(', ');
-    
-    // Prepare profile data for the prompt
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    console.error('Missing OpenAI API key');
+    return null;
+  }
+
     const profile = user.profile || {};
+  const recentActivities = activityHistory.map(h => h.questTitle).join(', ') || 'none';
     
     const prompt = `
-      Create a personalized fitness quest based on this user's profile:
+    You are a personal trainer. Based on the following information, give me a detailed workout assignment for today:
       - Age: ${profile.age || 'unknown'}
       - Gender: ${profile.gender || 'unknown'}
       - Height: ${profile.height || 'unknown'}cm
@@ -681,128 +730,193 @@ async function generatePersonalQuest(user: UserType, activityHistory: QuestHisto
       - Injuries: ${profile.injuries?.join(', ') || 'none'}
       - Preferred Activities: ${profile.preferredActivities?.join(', ') || 'variety'}
       - Activity Level: ${profile.activityLevel || 'moderate'}
-      - Workout Frequency: ${profile.workoutFrequency?.sessionsPerWeek || 3} sessions per week, ${profile.workoutFrequency?.minutesPerSession || 30} minutes per session
-      - Available Equipment: ${profile.equipment?.join(', ') || 'minimal equipment'}
-      - Recent Completed Quests: ${recentActivities || 'none'}
-      
-      Create a quest with these components:
-      1. A short, motivating title
-      2. A detailed description explaining the benefits
-      3. A specific objective with a numerical target
-      4. One of these categories: strength, cardio, flexibility, nutrition, mental, daily
-      5. An appropriate difficulty level (easy, medium, hard) based on experience
-      6. Appropriate measurement units
-      7. Challenging but realistic targets
-      8. Instructions for completing the quest
-      9. Estimated completion time in minutes (between 10 to 60 minutes)
-      
-      The quest should be tailored to the user's fitness goals, health conditions, and preferences.
-      Return the quest in JSON format with these fields:
-      {
-        "title": "",
-        "description": "",
-        "category": "",
-        "difficulty": "",
-        "objective": "",
-        "target": 0,
-        "unit": "",
-        "estimatedTime": 0,
-        "rewards": {
-          "xp": 0,
-          "gold": 0,
-          "items": []
-        },
-        "completionCriteria": "",
-        "completionInstructions": ""
-      }
-      
-      Rewards should scale with difficulty: easy (50-100 XP, 50-100 gold), medium (100-150 XP, 100-150 gold), hard (150-250 XP, 150-250 gold).
-      Estimated time should be realistic and proportional to the difficulty of the quest (e.g., easy: 10-20 minutes, medium: 20-40 minutes, hard: 30-60 minutes).
-    `;
+    - Equipment: ${profile.equipment?.join(', ') || 'Nothing'}
+    - Recent Completed Quests: ${recentActivities}
+
+  ✅ Required JSON return includes:
+  - title: Short, catchy title
+  - description: 1-2 sentences explaining the quest
+  - category: MUST be one of: strength, cardio, flexibility, nutrition, mental, daily
+  - difficulty: MUST be one of: easy, medium, hard
+  - objective: What needs to be done (e.g., "Complete pushups")
+  - target: MUST be a number (e.g., 10 for 10 pushups)
+  - unit: Unit of measurement (e.g., "pushups", "minutes", "reps")
+  - estimatedTime: MUST be a number between 10-60 minutes
+  - rewards:
+    - xp: MUST be a number (easy: 50-100, medium: 100-150, hard: 150-250)
+    - gold: MUST be a number (easy: 50-100, medium: 100-150, hard: 150-250)
+    - items: Array of strings (optional)
+  - completionCriteria: MUST be one of: "manual", "automatic", "verification"
+  - completionInstructions: Clear instructions on how to complete/verify
+  - workoutDetails: Array of sections, each with:
+    - section: Section name (e.g., "Warm-up", "Main Workout", "Cool-down")
+    - duration: MUST be a number (minutes)
+    - exercises: Array of exercises, each with:
+      - name: Exercise name
+      - time: Time or reps (e.g., "30 seconds", "10 reps")
+      - description: How to perform the exercise
+
+✅ Important rules:
+1. target MUST be a number, not a string
+2. estimatedTime MUST be a number between 10-60
+3. rewards.xp and rewards.gold MUST be numbers
+4. category and difficulty MUST be from the allowed values
+5. workoutDetails duration MUST be a number
+
+✅ Output format: Return a valid JSON object with all required fields. No comments or introduction.
+  `;
+
+  try {
     
-    // Call OpenAI API
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o", // or another appropriate model
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
     });
     
-    // Handle the possibility of null content
-    const content = completion.choices[0].message.content || '{"title":"Daily Fitness","description":"A basic fitness activity","category":"daily","difficulty":"easy","objective":"Complete physical activity","target":30,"unit":"minutes","estimatedTime":30,"rewards":{"xp":50,"gold":50,"items":[]},"completionCriteria":"manual","completionInstructions":"Mark as complete when done."}';
+    const content = completion?.choices?.[0]?.message?.content;
+    if (!content) {
+      console.error('Empty response from OpenAI');
+      return null;
+    }
+   
     
     const questData = JSON.parse(content);
     
-    // Set default estimated time if not provided
-    if (!questData.estimatedTime || questData.estimatedTime < 10 || questData.estimatedTime > 60) {
-      questData.estimatedTime = questData.difficulty === 'easy' ? 15 : 
-                               questData.difficulty === 'medium' ? 30 : 45;
+    if (typeof questData.target === 'string' || isNaN(Number(questData.target))) {
+      console.log(`Invalid target value: ${questData.target}, setting default target`);
+      questData.target = 
+        questData.difficulty === 'easy' ? 10 :
+        questData.difficulty === 'medium' ? 20 : 30;
+    }
+
+    if (!questData.rewards || typeof questData.rewards !== 'object') {
+      questData.rewards = { xp: 0, gold: 0, items: [] };
+    }
+
+    if (typeof questData.rewards.xp !== 'number' || isNaN(questData.rewards.xp)) {
+      questData.rewards.xp = 
+        questData.difficulty === 'easy' ? 50 :
+        questData.difficulty === 'medium' ? 100 : 150;
+    }
+
+    if (typeof questData.rewards.gold !== 'number' || isNaN(questData.rewards.gold)) {
+      questData.rewards.gold = 
+        questData.difficulty === 'easy' ? 50 :
+        questData.difficulty === 'medium' ? 100 : 150;
+    }
+
+    if (!Array.isArray(questData.rewards.items)) {
+      questData.rewards.items = [];
     }
     
+    if (questData.estimatedTime) {
+      if (typeof questData.estimatedTime === 'string') {
+        console.log(`estimatedTime is string: "${questData.estimatedTime}"`);
+        const numberMatch = questData.estimatedTime.match(/(\d+)/);
+        if (numberMatch && numberMatch[1]) {
+          questData.estimatedTime = parseInt(numberMatch[1], 10);
+        } else {
+          questData.estimatedTime = 
+            questData.difficulty === 'easy' ? 15 :
+                               questData.difficulty === 'medium' ? 30 : 45;
+        }
+      }
+    }
+    
+    if (!questData.estimatedTime || isNaN(Number(questData.estimatedTime)) || questData.estimatedTime < 10 || questData.estimatedTime > 60) {
+      questData.estimatedTime =
+        questData.difficulty === 'easy' ? 15 :
+        questData.difficulty === 'medium' ? 30 : 45;
+    }
+
+    const validCategories = ['strength', 'cardio', 'flexibility', 'nutrition', 'mental', 'daily'];
+    if (!validCategories.includes(questData.category)) {
+      console.log(`Invalid category: ${questData.category}, defaulting to 'cardio'`);
+      questData.category = 'cardio';
+    }
+
+    const validDifficulties = ['easy', 'medium', 'hard'];
+    if (!validDifficulties.includes(questData.difficulty)) {
+      console.log(`Invalid difficulty: ${questData.difficulty}, defaulting to 'easy'`);
+      questData.difficulty = 'easy';
+    }
+
+    // Ensure completionCriteria is a valid value
+    const validCompletionCriteria = ['manual', 'automatic', 'verification'];
+    if (!validCompletionCriteria.includes(questData.completionCriteria)) {
+      questData.completionCriteria = 'manual';
+    }
+
+    // Ensure workoutDetails is an array and has the correct format
+    if (!questData.workoutDetails || !Array.isArray(questData.workoutDetails)) {
+      questData.workoutDetails = [];
+    }
+
+    questData.workoutDetails = questData.workoutDetails.map((section: WorkoutSection) => ({
+      section: section.section || 'Unnamed Section',
+      duration: typeof section.duration === 'number' ? section.duration : 0,
+      exercises: Array.isArray(section.exercises) ? section.exercises.map((exercise: Exercise) => ({
+        name: exercise.name || 'Unnamed Exercise',
+        time: exercise.time || '0 minutes',
+        description: exercise.description || 'No description provided'
+      })) : []
+    }));
+
+    // Ensure completionInstructions has a value
+    if (!questData.completionInstructions || questData.completionInstructions.trim() === '') {
+      questData.completionInstructions = `Complete ${questData.target} ${questData.unit} of ${questData.objective.toLowerCase()}`;
+    }
+
+    const requiredFields = ['title', 'description', 'category', 'difficulty', 'objective', 'target', 'unit', 'rewards'];
+    const missing = requiredFields.filter(f => !questData[f]);
+    if (missing.length) {
+      console.error('Missing required quest fields:', missing.join(', '));
+      return null;
+    }
     return questData;
   } catch (error) {
-    console.error('Error generating personal quest with AI:', error);
-    
-    // Return fallback quest if AI generation fails
-    return {
-      title: "Daily Movement Challenge",
-      description: "Get your body moving with this personalized activity challenge tailored to your fitness level.",
-      category: "daily",
-      difficulty: "easy",
-      objective: "Complete minutes of physical activity",
-      target: 30,
-      unit: "minutes",
-      estimatedTime: 15,
-      rewards: {
-        xp: 75,
-        gold: 75
-      },
-      completionCriteria: "manual",
-      completionInstructions: "After completing your activity, come back and mark this quest complete."
-    };
+    console.error('OpenAI API error (gpt-4o only):', error);
+    return null;
   }
 }
 
 async function generateServerQuests() {
   try {
     const prompt = `
-      Create 5 diverse fitness quests for a community fitness app.
-      Include a mix of different categories (strength, cardio, flexibility, nutrition, mental, daily)
-      and difficulties (easy, medium, hard).
+      You are a fitness coach in a health and fitness themed game called HealthQuest. 
+      Please generate 5 server quests for users to complete.
       
-      Each quest should have:
-      1. An engaging title
-      2. A detailed description explaining what to do and benefits
-      3. A clear objective with specific metrics
-      4. Appropriate difficulty rating
-      5. Realistic target numbers
-      6. Instructions for completion
+      Create varied quests across these categories: strength, cardio, flexibility, nutrition, mental, daily
+      With difficulty levels: easy, medium, hard
       
-      Return the quests as a JSON array with these fields for each quest:
-      {
-        "title": "",
-        "description": "",
-        "category": "",
-        "difficulty": "",
-        "objective": "",
-        "target": 0,
-        "unit": "",
-        "energyCost": 0,
-        "requiredLevel": 0,
-        "rewards": {
-          "xp": 0,
-          "gold": 0,
-          "items": []
-        },
-        "completionCriteria": "",
-        "completionInstructions": ""
-      }
-      
-      Energy costs should vary by difficulty: easy (3-5), medium (5-8), hard (8-10).
-      Rewards should scale with difficulty: easy (50-100 XP, 50-100 gold), medium (100-150 XP, 100-150 gold), hard (150-250 XP, 150-250 gold).
-      Required levels should be: easy (0), medium (3), hard (5+).
+      For each quest provide:
+      - title: Short, catchy title
+      - description: 1-2 sentences explaining the quest
+      - category: One of the categories listed above
+      - difficulty: easy, medium, or hard
+      - objective: What the user needs to do (e.g., "Complete 5 pushups")
+      - target: Numerical target (e.g., 5)
+      - unit: Unit of measurement (e.g., "pushups", "minutes", "glasses")
+      - energyCost: Energy cost to accept (5-15 based on difficulty)
+      - requiredLevel: Minimum level required (0-5)
+      - rewards: 
+        - xp: XP rewarded (50-200 based on difficulty)
+        - gold: Gold rewarded (10-50 based on difficulty)
+        - items: Array of string item names (optional)
+      - completionCriteria: How to verify completion (one of: "manual", "automatic", "verification")
+      - completionInstructions: Instructions on how to complete or verify the quest
+      - workoutDetails: Array of workout sections (typically: warmup, main workout, cooldown), each with:
+        - section: Section name (e.g., "Warm-up", "Main Workout", "Cool-down")
+        - duration: Duration in minutes
+        - exercises: Array of exercises
+          - name: Exercise name
+          - time: Time specification (e.g., "30 seconds", "10 reps")
+          - description: How to perform the exercise
+        
+      ✅ Output format: Return a valid JSON array containing 5 quest objects
     `;
-    
-    // Call OpenAI API
+    // console.log(prompt);
     const completion = await openai.chat.completions.create({
       model: "gpt-4o", // or another appropriate model
       messages: [{ role: "user", content: prompt }],
@@ -816,7 +930,69 @@ async function generateServerQuests() {
     
     // Validate and return quests
     if (Array.isArray(questsData.quests)) {
-      return questsData.quests;
+      return questsData.quests.map((quest: any) => {
+        if (quest.workoutDetails && typeof quest.workoutDetails === 'object' && !Array.isArray(quest.workoutDetails)) {
+          const workoutDetailsArray = [];
+          for (const sectionName in quest.workoutDetails) {
+            const sectionData = quest.workoutDetails[sectionName];
+            workoutDetailsArray.push({
+              section: sectionName,
+              duration: sectionData.duration || 0,
+              exercises: Array.isArray(sectionData.exercises) ? sectionData.exercises : []
+            });
+          }
+          quest.workoutDetails = workoutDetailsArray;
+        }
+        if (!quest.workoutDetails || !Array.isArray(quest.workoutDetails)) {
+          quest.workoutDetails = [];
+        }
+        quest.workoutDetails = quest.workoutDetails.map((section: WorkoutSection) => ({
+          section: section.section || 'Unnamed Section',
+          duration: section.duration || 0,
+          exercises: Array.isArray(section.exercises) ? section.exercises.map((exercise: Exercise) => ({
+            name: exercise.name || 'Unnamed Exercise',
+            time: exercise.time || '0 minutes',
+            description: exercise.description || 'No description provided'
+          })) : []
+        }));
+
+        if (quest.estimatedTime) {
+          if (typeof quest.estimatedTime === 'string') {
+            console.log(`Quest estimatedTime is string: "${quest.estimatedTime}"`);
+            const numberMatch = quest.estimatedTime.match(/(\d+)/);
+            if (numberMatch && numberMatch[1]) {
+              quest.estimatedTime = parseInt(numberMatch[1], 10);
+            } else {
+              quest.estimatedTime = 
+                quest.difficulty === 'easy' ? 15 :
+                quest.difficulty === 'medium' ? 30 : 45;
+            }
+          }
+        }
+        if (!quest.estimatedTime || isNaN(Number(quest.estimatedTime)) || quest.estimatedTime < 10 || quest.estimatedTime > 60) {
+          quest.estimatedTime =
+            quest.difficulty === 'easy' ? 15 :
+            quest.difficulty === 'medium' ? 30 : 45;
+        }
+
+        const validCategories = ['strength', 'cardio', 'flexibility', 'nutrition', 'mental', 'daily'];
+        if (!validCategories.includes(quest.category)) {
+          console.log(`Invalid category: ${quest.category}, defaulting to 'cardio'`);
+          quest.category = 'cardio';
+        }
+
+        const validDifficulties = ['easy', 'medium', 'hard'];
+        if (!validDifficulties.includes(quest.difficulty)) {
+          console.log(`Invalid difficulty: ${quest.difficulty}, defaulting to 'easy'`);
+          quest.difficulty = 'easy';
+        }
+        const validCompletionCriteria = ['manual', 'automatic', 'verification'];
+        if (!validCompletionCriteria.includes(quest.completionCriteria)) {
+          quest.completionCriteria = 'manual';
+        }
+
+        return quest;
+      });
     } else {
       throw new Error('AI did not return a valid array of quests');
     }
@@ -841,7 +1017,42 @@ async function generateServerQuests() {
           items: []
         },
         completionCriteria: "manual",
-        completionInstructions: "Track your steps with any fitness device or app and report your total."
+        completionInstructions: "Track your steps with any fitness device or app and report your total.",
+        workoutDetails: [
+          {
+            section: "Warm-up",
+            duration: 5,
+            exercises: [
+              {
+                name: "Brisk Walking",
+                time: "5 minutes",
+                description: "Start with a brisk walk to get your heart rate up."
+              }
+            ]
+          },
+          {
+            section: "Main Workout",
+            duration: 20,
+            exercises: [
+              {
+                name: "Walking/Jogging",
+                time: "20 minutes",
+                description: "Maintain a steady pace that challenges you but allows you to maintain the activity for the full duration."
+              }
+            ]
+          },
+          {
+            section: "Cool-down",
+            duration: 5,
+            exercises: [
+              {
+                name: "Gentle Walking",
+                time: "5 minutes",
+                description: "Gradually reduce your pace to bring your heart rate down."
+              }
+            ]
+          }
+        ]
       },
       {
         title: "Strength Foundation",
@@ -859,7 +1070,57 @@ async function generateServerQuests() {
           items: []
         },
         completionCriteria: "manual",
-        completionInstructions: "Complete any combination of bodyweight exercises totaling 100 reps."
+        completionInstructions: "Complete any combination of bodyweight exercises totaling 100 reps.",
+        workoutDetails: [
+          {
+            section: "Warm-up",
+            duration: 5,
+            exercises: [
+              {
+                name: "Arm Circles",
+                time: "30 seconds",
+                description: "Rotate your arms in circles, forward and backward."
+              },
+              {
+                name: "Jumping Jacks",
+                time: "1 minute",
+                description: "Jump while raising arms and spreading legs to the sides."
+              }
+            ]
+          },
+          {
+            section: "Main Workout",
+            duration: 20,
+            exercises: [
+              {
+                name: "Push-ups",
+                time: "As many as comfortable",
+                description: "Lower your body to the ground and push back up using your arms."
+              },
+              {
+                name: "Squats",
+                time: "As many as comfortable",
+                description: "Bend your knees and lower your hips as if sitting in a chair."
+              },
+              {
+                name: "Sit-ups",
+                time: "As many as comfortable",
+                description: "Lie on your back and lift your torso toward your knees."
+              }
+            ]
+          },
+          {
+            section: "Cool-down",
+            duration: 5,
+            exercises: [
+              {
+                name: "Stretching",
+                time: "5 minutes",
+                description: "Stretch all major muscle groups, holding each stretch for 15-30 seconds."
+              }
+            ]
+          }
+        ]
       },
       {
         title: "Mindfulness Minutes",
@@ -877,7 +1138,42 @@ async function generateServerQuests() {
           items: []
         },
         completionCriteria: "manual",
-        completionInstructions: "Sit quietly and focus on your breath for 15 minutes total."
+        completionInstructions: "Sit quietly and focus on your breath for 15 minutes total.",
+        workoutDetails: [
+          {
+            section: "Preparation",
+            duration: 2,
+            exercises: [
+              {
+                name: "Finding a Quiet Space",
+                time: "2 minutes",
+                description: "Find a quiet, comfortable place where you won't be disturbed."
+              }
+            ]
+          },
+          {
+            section: "Meditation",
+            duration: 15,
+            exercises: [
+              {
+                name: "Mindful Breathing",
+                time: "15 minutes",
+                description: "Sit comfortably, close your eyes, and focus on your breath. Notice the sensation of breathing in and out. When your mind wanders, gently bring it back to your breath."
+              }
+            ]
+          },
+          {
+            section: "Reflection",
+            duration: 3,
+            exercises: [
+              {
+                name: "Mental Check-in",
+                time: "3 minutes",
+                description: "Notice how you feel after the meditation. Observe any changes in your mental state."
+              }
+            ]
+          }
+        ]
       }
     ];
   }

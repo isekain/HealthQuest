@@ -6,41 +6,30 @@ export const users = pgTable("users", {
   walletAddress: text("wallet_address").primaryKey(),
   username: text("username").notNull(),
   profile: jsonb("profile").$type<{
-    // Information basic
     age: number;
     gender: string;
     height: number;
     weight: number;
     waistCircumference?: number;
     fitnessGoal: string;
-
-    // Health status
     medicalConditions: string;
     injuries: string[];
     sleepQuality: string;
     mentalHealth: string;
-
-    // Lifestyle habits and preferences
     activityLevel: string;
     dietaryHabits: string;
-    preferredActivities: string[]; // Added: multiple activities user enjoys
+    preferredActivities: string[]; 
     workoutFrequency: {
-      sessionsPerWeek: number; 
+      sessionsPerWeek: number;
       minutesPerSession: number; 
     };
-
-    // Diet regime
     dietType: string;
     foodAllergies: string[];
     trackNutrition: boolean;
-
-    // Specific goals
     targetWeight?: number;
-    targetDuration: string; // '1_month', '3_months', '6_months'
+    targetDuration: string; 
     secondaryGoals: string[];
-
-    // Available equipment and fitness trackers
-    equipment: string; // Changed to free text input
+    equipment: string; 
     fitnessTrackers: string[];
   }>(),
   nftTokenId: text("nft_token_id"),

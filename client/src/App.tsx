@@ -17,6 +17,7 @@ import { useState, useEffect } from "react";
 import { useStore } from "./store";
 import Welcome from "./pages/welcome";
 import MintNFT from "./pages/mint-nft";
+import BossBattle from "./pages/boss-battle";
 
 // ProtectedRoute component to check conditions before rendering route
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -67,6 +68,7 @@ function Router() {
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/quests" element={<ProtectedRoute><Quests /></ProtectedRoute>} />
+              <Route path="/boss-battle" element={<ProtectedRoute><BossBattle /></ProtectedRoute>} />
               <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
               <Route path="/achievements" element={<ProtectedRoute><Achievements /></ProtectedRoute>} />
               <Route path="/profile" element={<Profile />} />

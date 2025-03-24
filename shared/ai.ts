@@ -9,9 +9,8 @@ if (!apiKey) {
   console.error("OPENAI_API_KEY is not defined in environment variables");
 }
 
-// the newest OpenAI model is "gpt-4o" which was released May 13, 2024
 const openai = new OpenAI({ 
-  apiKey: apiKey || 'dummy-key-for-development'  // Fallback to development key if not found
+  apiKey: apiKey || 'dummy-key-for-development' 
 });
 
 export interface WorkoutPlan {

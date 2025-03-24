@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
 
-// Log ra để debug schema
 const UserSchemaDefinition = {
   walletAddress: {
     type: String,
@@ -96,12 +95,9 @@ const UserSchema = new mongoose.Schema(UserSchemaDefinition);
 
 UserSchema.set('toJSON', {
   transform: function(doc, ret, options) {
-    // Đảm bảo profile tồn tại
     if (!ret.profile) {
       ret.profile = {};
     }
-    
-    // Đảm bảo các trường quan trọng luôn có
     if (ret.profile.dietaryRestrictions === undefined) {
       ret.profile.dietaryRestrictions = '';
     }
@@ -114,6 +110,6 @@ UserSchema.set('toJSON', {
   }
 });
 
-console.log('User Schema Definition:', JSON.stringify(UserSchemaDefinition.profile, null, 2));
+// console.log('User Schema Definition:', JSON.stringify(UserSchemaDefinition.profile, null, 2));
 
 export const User = mongoose.model('User', UserSchema);

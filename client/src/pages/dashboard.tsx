@@ -1,15 +1,12 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import WorkoutTask from "@/components/workouts/WorkoutTask";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Workout } from "@shared/schema";
-import { Dumbbell, TrendingUp, Swords, Coins, BarChart3, Plus, Check } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dumbbell, BarChart3, TrendingUp, Check, Swords, Coins, Calendar, Clock, Award, Zap } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { PageContainer, SectionContainer } from "@/components/ui/container";
 import { apiRequest } from "@/utils/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import NFTCard from "@/components/nft/NFTCard";
 import {
   Table,
   TableBody,
@@ -19,46 +16,133 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-// Thêm định nghĩa kiểu dữ liệu cho progress
-interface ProgressAnalysis {
-  performance: number;
-  suggestions: string[];
+interface NFTStats {
+  tokenId?: string;
+  level?: number;
+  STR?: number;
+  AGI?: number;
+  VIT?: number;
+  DEX?: number;
+  INT?: number;
+  WIS?: number;
+  LUK?: number;
+  energy?: number;
+  energyLastReset?: string | Date;
+  statsPoints?: number;
 }
 
-// Component để hiển thị lịch sử quest
-function QuestHistoryTable({ history }: { history: any[] }) {
+interface UserData {
+  gold?: number;
+}
+
+interface QuestHistoryItem {
+  _id: string;
+  userWallet: string;
+  questId: string;
+  questType: string;
+  questTitle: string;
+  energyCost: number;
+  rewardsXp: number;
+  rewardsGold: number;
+  category: string;
+  difficulty: string;
+  estimatedTime: number;
+  rewardsItems: string[];
+  completedAt: string;
+}
+
+interface UpdateStatsParams {
+  statsToAdd: {
+    STR: number;
+    AGI: number;
+    VIT: number;
+    DEX: number;
+    INT: number;
+    WIS: number;
+    LUK: number;
+  };
+}
+
+interface UpdateStatsResponse {
+  success: boolean;
+  message: string;
+}
+
+interface QuickStats {
+  totalMinutes: number;
+  totalQuests: number;
+  totalRewardsGold: number;
+  totalRewardsXp: number;
+  maxStreak: number;
+}
+
+type TimeRange = 'day' | 'week' | 'month' | 'all';
+
+function QuestHistoryTable({ history }: { history: QuestHistoryItem[] }) {
   return (
-    <div className="rounded-md border">
+    <div className="rounded-md border overflow-auto">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Quest</TableHead>
             <TableHead>Type</TableHead>
-            <TableHead>Energy</TableHead>
+            <TableHead>Category</TableHead>
+            <TableHead>Difficulty</TableHead>
+            <TableHead>Time</TableHead>
             <TableHead className="text-right">Rewards</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {history.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={4} className="text-center text-muted-foreground">
+              <TableCell colSpan={6} className="text-center text-muted-foreground">
                 No quest history yet
               </TableCell>
             </TableRow>
           ) : (
             history.map((quest) => (
-              <TableRow key={quest.id}>
+              <TableRow key={quest._id}>
                 <TableCell className="font-medium">{quest.questTitle}</TableCell>
                 <TableCell>
                   <Badge variant={quest.questType === 'personal' ? "outline" : "default"}>
                     {quest.questType}
                   </Badge>
                 </TableCell>
-                <TableCell>{quest.energyCost}</TableCell>
+                <TableCell>
+                  <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">
+                    {quest.category}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge 
+                    className={
+                      quest.difficulty === 'easy' 
+                        ? 'bg-green-100 text-green-800 hover:bg-green-100' 
+                        : quest.difficulty === 'medium'
+                          ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
+                          : 'bg-red-100 text-red-800 hover:bg-red-100'
+                    }
+                  >
+                    {quest.difficulty}
+                  </Badge>
+                </TableCell>
+                <TableCell>{quest.estimatedTime} min</TableCell>
                 <TableCell className="text-right">
-                  <span className="text-amber-600">{quest.rewardsGold} Gold</span> +{" "}
+                  <span className="text-amber-600">{quest.rewardsGold} Gold</span>{" "}
                   <span className="text-green-600">{quest.rewardsXp} XP</span>
+                  {quest.rewardsItems?.length > 0 && (
+                    <span className="text-purple-600 block text-xs">
+                      +{quest.rewardsItems.join(', ')}
+                    </span>
+                  )}
                 </TableCell>
               </TableRow>
             ))
@@ -69,7 +153,6 @@ function QuestHistoryTable({ history }: { history: any[] }) {
   );
 }
 
-// Component hiển thị thanh năng lượng
 function EnergyBar({ energy = 100, maxEnergy = 100, lastReset }: { 
   energy: number; 
   maxEnergy?: number;
@@ -78,18 +161,14 @@ function EnergyBar({ energy = 100, maxEnergy = 100, lastReset }: {
   const [timeLeft, setTimeLeft] = useState<string>("");
   
   useEffect(() => {
-    // Tính toán thời gian reset (giả sử reset lúc 00:00 mỗi ngày)
     const calculateTimeLeft = () => {
       const now = new Date();
       const resetTime = new Date();
-      resetTime.setHours(24, 0, 0, 0); // Đặt thời gian 00:00:00 của ngày mai
+      resetTime.setHours(24, 0, 0, 0); 
       
       const diff = resetTime.getTime() - now.getTime();
-      
-      // Nếu đã quá thời gian reset
       if (diff <= 0) return "Ready to reset";
-      
-      // Tính giờ, phút, giây còn lại
+
       const hours = Math.floor(diff / (1000 * 60 * 60));
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((diff % (1000 * 60)) / 1000);
@@ -97,29 +176,24 @@ function EnergyBar({ energy = 100, maxEnergy = 100, lastReset }: {
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     };
     
-    // Cập nhật thời gian mỗi giây
     const timer = setInterval(() => {
       setTimeLeft(calculateTimeLeft());
     }, 1000);
     
-    // Khởi tạo giá trị ban đầu
     setTimeLeft(calculateTimeLeft());
     
     return () => clearInterval(timer);
   }, [lastReset]);
   
-  // Tính phần trăm năng lượng
   const percentage = Math.min(100, (energy / maxEnergy) * 100);
-  
-  // Xác định màu dựa trên phần trăm năng lượng
   let barColor = "bg-red-500";
   if (percentage > 75) {
-    barColor = "bg-green-500"; // Xanh lá khi >= 75%
+    barColor = "bg-green-500";
   } else if (percentage > 50) {
-    barColor = "bg-blue-500"; // Xanh dương khi >= 50%
+    barColor = "bg-blue-500"; 
   } else if (percentage > 25) {
-    barColor = "bg-yellow-500"; // Vàng khi >= 25%
-  } // Đỏ khi < 25%
+    barColor = "bg-yellow-500"; 
+  } 
   
   return (
     <div className="space-y-1">
@@ -139,7 +213,6 @@ function EnergyBar({ energy = 100, maxEnergy = 100, lastReset }: {
   );
 }
 
-// Component cho một chỉ số (stat row) với nút tăng/giảm
 function StatRow({ 
   label, 
   value, 
@@ -178,10 +251,10 @@ function StatRow({
             onClick={removeValue}
             disabled={toAdd <= 0}
           >
-            -
+            <span>-</span>
           </Button>
-          <span className="mx-2 text-xs font-medium text-green-600">
-            {toAdd > 0 ? `+${toAdd}` : ''}
+          <span className="mx-2 text-xs font-medium w-4 text-center">
+            {toAdd}
           </span>
           <Button 
             variant="outline" 
@@ -190,7 +263,7 @@ function StatRow({
             onClick={addValue}
             disabled={statPoints <= 0}
           >
-            +
+            <span>+</span>
           </Button>
         </div>
       )}
@@ -198,13 +271,138 @@ function StatRow({
   );
 }
 
+function QuickStatsSection({ data, timeRange }: { data: QuestHistoryItem[], timeRange: TimeRange }) {
+  const filteredData = filterDataByTimeRange(data, timeRange);
+  
+  const stats = calculateStats(filteredData);
+  
+  const title = timeRange === 'day' ? 'Today' : 
+                timeRange === 'week' ? '7 days ago' : 
+                timeRange === 'month' ? '30 days ago' : 'All';
+  
+  return (
+    <Card className="mb-6">
+      <CardContent className="p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold">{title}</h3>
+        </div>
+        
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="flex flex-col items-center p-4 bg-blue-50 rounded-lg">
+            <Clock className="h-6 w-6 mb-2 text-blue-500" />
+            <span className="text-xl font-bold">{stats.totalMinutes}</span>
+            <span className="text-sm text-muted-foreground">Training Minutes</span>
+          </div>
+          
+          <div className="flex flex-col items-center p-4 bg-green-50 rounded-lg">
+            <Dumbbell className="h-6 w-6 mb-2 text-green-500" />
+            <span className="text-xl font-bold">{stats.totalQuests}</span>
+            <span className="text-sm text-muted-foreground">Completed Quests</span>
+          </div>
+          
+          <div className="flex flex-col items-center p-4 bg-amber-50 rounded-lg">
+            <Coins className="h-6 w-6 mb-2 text-amber-500" />
+            <span className="text-xl font-bold">{stats.totalRewardsGold}</span>
+            <span className="text-sm text-muted-foreground">Gold</span>
+          </div>
+          
+          <div className="flex flex-col items-center p-4 bg-purple-50 rounded-lg">
+            <Zap className="h-6 w-6 mb-2 text-purple-500" />
+            <span className="text-xl font-bold">{stats.maxStreak}</span>
+            <span className="text-sm text-muted-foreground">Max Streak</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function filterDataByTimeRange(data: QuestHistoryItem[], timeRange: TimeRange): QuestHistoryItem[] {
+  const now = new Date();
+  
+  switch (timeRange) {
+    case 'day':
+      return data.filter(item => {
+        const itemDate = new Date(item.completedAt);
+        return itemDate.toDateString() === now.toDateString();
+      });
+      
+    case 'week':
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(now.getDate() - 7);
+      return data.filter(item => {
+        const itemDate = new Date(item.completedAt);
+        return itemDate >= oneWeekAgo;
+      });
+      
+    case 'month':
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setDate(now.getDate() - 30);
+      return data.filter(item => {
+        const itemDate = new Date(item.completedAt);
+        return itemDate >= oneMonthAgo;
+      });
+      
+    case 'all':
+    default:
+      return data;
+  }
+}
+
+function calculateStats(data: QuestHistoryItem[]): QuickStats {
+  const totalMinutes = data.reduce((sum, item) => sum + (item.estimatedTime || 0), 0);
+  const totalQuests = data.length;
+  const totalRewardsGold = data.reduce((sum, item) => sum + (item.rewardsGold || 0), 0);
+  const totalRewardsXp = data.reduce((sum, item) => sum + (item.rewardsXp || 0), 0);
+  
+  let maxStreak = 0;
+  
+  if (data.length > 0) {
+    const sortedData = [...data].sort((a, b) => 
+      new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime()
+    );
+    
+    const uniqueDates = new Set(
+      sortedData.map(item => new Date(item.completedAt).toDateString())
+    );
+    const dates = Array.from(uniqueDates).map(dateStr => new Date(dateStr));
+    dates.sort((a, b) => a.getTime() - b.getTime());
+    
+    let currentStreak = 1;
+    
+    for (let i = 1; i < dates.length; i++) {
+      const prevDate = dates[i - 1];
+      const currDate = dates[i];
+    
+      const diffTime = currDate.getTime() - prevDate.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 1) {
+        currentStreak++;
+        maxStreak = Math.max(maxStreak, currentStreak);
+      } else {
+        currentStreak = 1;
+      }
+    }
+    
+    maxStreak = Math.max(maxStreak, currentStreak);
+  }
+  
+  return {
+    totalMinutes,
+    totalQuests,
+    totalRewardsGold,
+    totalRewardsXp,
+    maxStreak
+  };
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const walletAddress = user?.walletAddress;
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
   
-  // State để lưu trữ điểm chỉ số đang tăng
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [statsToAdd, setStatsToAdd] = useState({
     STR: 0,
     AGI: 0,
@@ -214,42 +412,140 @@ export default function Dashboard() {
     WIS: 0,
     LUK: 0
   });
-  
-  // Tính tổng điểm đã phân bổ
-  const totalPointsUsed = Object.values(statsToAdd).reduce((sum, val) => sum + val, 0);
+  const [timeRange, setTimeRange] = useState<TimeRange>('week');
 
-  const { data: workouts, isLoading } = useQuery<Workout[]>({
-    queryKey: [`/api/users/${walletAddress}/workouts`],
-    enabled: !!walletAddress,
-  });
+  const totalPointsUsed = Object.values(statsToAdd).reduce((sum, current) => sum + current, 0);
 
-  const { data: progress } = useQuery<ProgressAnalysis>({
-    queryKey: ["/api/ai/analyze-progress"],
-    enabled: !!workouts?.length,
-  });
-  
   // Fetch NFT stats
-  const { data: nftStats, isLoading: statsLoading } = useQuery({
+  const { 
+    data: nftStats, 
+    isLoading: statsLoading 
+  } = useQuery<NFTStats>({
     queryKey: [`/api/users/${walletAddress}/nft-stats`],
-    enabled: !!walletAddress,
-  });
-  
-  // Fetch user data (for gold balance)
-  const { data: userData } = useQuery({
-    queryKey: [`/api/users/${walletAddress}`],
-    enabled: !!walletAddress,
-  });
-  
-  // Fetch quest history
-  const { data: questHistory, isLoading: historyLoading } = useQuery({
-    queryKey: [`/api/users/${walletAddress}/quest-history`],
-    enabled: !!walletAddress,
-    // Mock data for history
-    placeholderData: []
+    queryFn: async () => {
+      if (!walletAddress) throw new Error("No wallet connected");
+      
+      return await apiRequest(`/api/users/${walletAddress}/nft-stats`);
+    },
+    enabled: !!walletAddress
   });
 
-  // Mutation để cập nhật chỉ số
-  const { mutate: updateStats, isLoading: isUpdating } = useMutation({
+  // Fetch user data (gold)
+  const { 
+    data: userData, 
+    isLoading: isUserLoading 
+  } = useQuery<UserData>({
+    queryKey: [`/api/users/${walletAddress}`],
+    queryFn: async () => {
+      if (!walletAddress) throw new Error("No wallet connected");
+      
+      return await apiRequest(`/api/users/${walletAddress}`);
+    },
+    enabled: !!walletAddress
+  });
+
+  // Fetch quest history
+  const { 
+    data: questHistoryResponse, 
+    isLoading: historyLoading 
+  } = useQuery<{
+    data: QuestHistoryItem[];
+    pagination: {
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    };
+  }>({
+    queryKey: [`/api/users/${walletAddress}/quest-history`],
+    queryFn: async () => {
+      if (!walletAddress) throw new Error("No wallet connected");
+      
+      try {
+        const result = await apiRequest(`/api/users/${walletAddress}/quest-history?limit=100`);
+        if (Array.isArray(result)) {
+          return {
+            data: result,
+            pagination: {
+              total: result.length,
+              page: 1,
+              limit: 100,
+              totalPages: 1
+            }
+          };
+        }
+        
+        return result;
+      } catch (error) {
+        console.log("Error fetching quest history:", error);
+        return {
+          data: [
+            {
+              _id: "67e0ad8ac1c078ffaf878723",
+              userWallet: walletAddress,
+              questId: "bd18d91f-d37f-4bc5-a800-cb1232c35996",
+              questType: "personal",
+              questTitle: "Endurance Boost Quest",
+              energyCost: 0,
+              rewardsXp: 95,
+              rewardsGold: 90,
+              category: "cardio",
+              difficulty: "easy",
+              estimatedTime: 30,
+              rewardsItems: ["Endurance Band"],
+              completedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+            },
+            {
+              _id: "67e0ad8ac1c078ffaf878724",
+              userWallet: walletAddress,
+              questId: "bd18d91f-d37f-4bc5-a800-cb1232c35997",
+              questType: "server",
+              questTitle: "Strength Challenge",
+              energyCost: 10,
+              rewardsXp: 150,
+              rewardsGold: 120,
+              category: "strength",
+              difficulty: "medium",
+              estimatedTime: 45,
+              rewardsItems: [],
+              completedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+            },
+            {
+              _id: "67e0ad8ac1c078ffaf878725",
+              userWallet: walletAddress,
+              questId: "bd18d91f-d37f-4bc5-a800-cb1232c35998",
+              questType: "personal",
+              questTitle: "Flexibility Master",
+              energyCost: 0,
+              rewardsXp: 80,
+              rewardsGold: 70,
+              category: "flexibility",
+              difficulty: "easy",
+              estimatedTime: 25,
+              rewardsItems: ["Stretch Band"],
+              completedAt: new Date().toISOString()
+            }
+          ],
+          pagination: {
+            total: 3,
+            page: 1,
+            limit: 100,
+            totalPages: 1
+          }
+        };
+      }
+    },
+    enabled: !!walletAddress
+  });
+
+  const questHistory = questHistoryResponse?.data || [];
+ 
+  const { mutate: updateStats, isPending: isUpdating } = useMutation<
+    UpdateStatsResponse, // Response data type
+    Error,              // Error type
+    void,               // Variables type (void for no params)
+    unknown             // Context type
+  >({
     mutationFn: async () => {
       if (!walletAddress) throw new Error("No wallet connected");
       
@@ -262,8 +558,8 @@ export default function Dashboard() {
     },
     onSuccess: () => {
       toast({
-        title: "Cập nhật chỉ số thành công",
-        description: "Các chỉ số của bạn đã được cập nhật.",
+        title: "Update stats successfully",
+        description: "Your stats have been updated.",
       });
       
       // Reset state
@@ -282,14 +578,13 @@ export default function Dashboard() {
     },
     onError: (error: any) => {
       toast({
-        title: "Lỗi",
-        description: error.message || "Không thể cập nhật chỉ số.",
+        title: "Error",
+        description: error.message || "Cannot update stats.",
         variant: "destructive",
       });
     }
   });
   
-  // Các hàm xử lý tăng/giảm điểm
   const increasePoint = (stat: string) => {
     if (nftStats && nftStats.statsPoints && totalPointsUsed < nftStats.statsPoints) {
       setStatsToAdd(prev => ({
@@ -308,7 +603,7 @@ export default function Dashboard() {
     }
   };
 
-  if (isLoading || statsLoading || historyLoading) {
+  if (statsLoading || isUserLoading || historyLoading) {
     return (
       <div className="flex justify-center items-center p-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -322,7 +617,7 @@ export default function Dashboard() {
         <Card>
           <CardContent className="pt-6">
             <p className="text-center text-muted-foreground">
-              Please connect your wallet to view your workouts.
+              Please connect your wallet to view your dashboard.
             </p>
           </CardContent>
         </Card>
@@ -331,14 +626,13 @@ export default function Dashboard() {
   }
 
   return (
-    <PageContainer title="Dashboard">
-      {/* NFT overview section at the top */}
+    <PageContainer title="Overview">
       {nftStats && nftStats.tokenId && (
         <Card className="mb-6">
           <CardContent className="p-4">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="md:w-1/3 flex flex-col items-center">
-                <div className="text-sm text-muted-foreground mb-1">Your Champion</div>
+                <div className="text-sm text-muted-foreground mb-1">Your Info</div>
                 <div className="text-2xl font-bold mb-2 flex items-center">
                   <Swords className="h-5 w-5 mr-2 text-primary" />
                   Level {nftStats?.level || 1}
@@ -354,7 +648,7 @@ export default function Dashboard() {
                     lastReset={nftStats?.energyLastReset ? new Date(nftStats.energyLastReset) : undefined}
                   />
                 </div>
-                {nftStats?.statsPoints > 0 && (
+                {nftStats?.statsPoints && nftStats.statsPoints > 0 && (
                   <div className="mt-2 text-sm bg-green-100 text-green-800 px-2 py-1 rounded">
                     {nftStats.statsPoints} stat points available
                   </div>
@@ -362,7 +656,7 @@ export default function Dashboard() {
               </div>
               
               <div className="md:w-2/3">
-                <div className="text-sm font-medium mb-2">Champion Stats</div>
+                <div className="text-sm font-medium mb-2"> Stats</div>
                 <div className="space-y-2">
                   <StatRow 
                     label="STR" 
@@ -447,82 +741,42 @@ export default function Dashboard() {
         </Card>
       )}
       
-      {/* Responsive grid - 1 column on mobile, 2 columns on tablet and above */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <div>
-          <SectionContainer title="Your Workouts">
-            <div className="space-y-4">
-              {workouts?.length ? (
-                workouts.map((workout) => (
-                  <WorkoutTask key={workout.id} workout={workout} />
-                ))
-              ) : (
-                <Card>
-                  <CardContent className="p-6 text-center">
-                    <p className="text-muted-foreground">No workouts found. Create your first workout!</p>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </SectionContainer>
-          
-          <div className="mt-6">
-            <SectionContainer title="Quest History" icon={<BarChart3 className="h-4 w-4" />}>
-              <QuestHistoryTable history={questHistory || []} />
-            </SectionContainer>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <SectionContainer title="Progress Analysis">
-            <Card>
-              <CardContent className="pt-6">
-                {progress ? (
-                  <>
-                    <div className="text-3xl font-bold mb-4">
-                      {progress.performance}% Performance
-                    </div>
-                    <div className="space-y-2">
-                      {progress.suggestions.map((suggestion: string, i: number) => (
-                        <p key={i} className="text-sm text-muted-foreground">
-                          • {suggestion}
-                        </p>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-muted-foreground">Complete workouts to see progress analysis.</p>
-                )}
-              </CardContent>
-            </Card>
-          </SectionContainer>
-
-          <SectionContainer title="Quick Stats">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-muted/50 p-4 rounded-lg">
-                    <div className="text-2xl font-bold">
-                      {workouts?.filter((w) => w.completed).length || 0}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      Completed Workouts
-                    </div>
-                  </div>
-                  <div className="bg-muted/50 p-4 rounded-lg">
-                    <div className="text-2xl font-bold">
-                      {workouts?.reduce((acc, w) => acc + (w.completed ? w.duration : 0), 0) || 0}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      Total Minutes
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </SectionContainer>
+      {/* Phần bộ lọc thời gian */}
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-semibold">Activity Stats</h3>
+        <div className="w-40">
+          <Select value={timeRange} onValueChange={(value: TimeRange) => setTimeRange(value)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select time" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="day">Today</SelectItem>
+              <SelectItem value="week">7 days ago</SelectItem>
+              <SelectItem value="month">30 days ago</SelectItem>
+              <SelectItem value="all">All</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
+      
+      {/* Thống kê nhanh */}
+      {questHistory && questHistory.length > 0 ? (
+        <QuickStatsSection data={questHistory} timeRange={timeRange} />
+      ) : (
+        <div className="mb-6">
+          <Card>
+            <CardContent className="p-6 text-center">
+              <p className="text-muted-foreground">No quest data yet.</p>
+              <p className="text-muted-foreground">Complete some quests to see the stats.</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      
+      {/* Quest History Table */}
+      <SectionContainer title="Quest History" icon={<BarChart3 className="h-4 w-4" />}>
+        <QuestHistoryTable history={questHistory || []} />
+      </SectionContainer>
 
       {/* Nút cập nhật chỉ số */}
       {totalPointsUsed > 0 && (
@@ -533,7 +787,7 @@ export default function Dashboard() {
             className="flex items-center"
           >
             <Check className="mr-2 h-4 w-4" />
-            Cập nhật ({totalPointsUsed}/{nftStats?.statsPoints || 0} điểm)
+            Update ({totalPointsUsed}/{nftStats?.statsPoints || 0} points)
           </Button>
         </div>
       )}

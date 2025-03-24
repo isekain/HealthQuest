@@ -32,7 +32,7 @@ const AchievementSchema = new mongoose.Schema({
   }
 });
 
-// Tạo compound unique index để tránh duplicate achievements
+// Create compound unique index to prevent duplicate achievements
 AchievementSchema.index({ userWallet: 1, type: 1 }, { unique: true });
 
 export const Achievement = mongoose.model('Achievement', AchievementSchema);

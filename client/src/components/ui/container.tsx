@@ -63,6 +63,7 @@ interface SectionContainerProps extends React.HTMLAttributes<HTMLDivElement> {
   description?: string;
   className?: string;
   titleClassName?: string;
+  icon?: React.ReactNode;
 }
 
 export function SectionContainer({
@@ -71,12 +72,14 @@ export function SectionContainer({
   description,
   className,
   titleClassName,
+  icon,
   ...props
 }: SectionContainerProps) {
   return (
     <section className={cn("mb-8", className)} {...props}>
       {title && (
         <h2 className={cn("text-xl font-semibold mb-2", titleClassName)}>
+          {icon && <span className="mr-2 inline-flex items-center">{icon}</span>}
           {title}
         </h2>
       )}

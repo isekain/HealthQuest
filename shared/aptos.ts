@@ -11,10 +11,10 @@ declare global {
   }
 }
 
-const NODE_URL = import.meta.env.APTOS_NODE_URL || "https://fullnode.mainnet.aptoslabs.com/v1";
+const NODE_URL = import.meta.env.VITE_APTOS_NODE_URL || "https://fullnode.mainnet.aptoslabs.com/v1";
 const client = new AptosClient(NODE_URL);
 
-export const CONTRACT_ADDRESS = import.meta.env.CONTRACT_ADDRESS || "";
+export const CONTRACT_ADDRESS = import.meta.env.VITE_NFT_CONTRACT_ADDRESS || "";
 export const COLLECTION_NAME = "FitQuest Champions";
 
 export async function mintNFT(

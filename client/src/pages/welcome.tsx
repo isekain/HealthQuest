@@ -11,11 +11,8 @@ export default function Welcome() {
   const navigate = useNavigate();
   const setWalletAddress = useStore((state) => state.setWalletAddress);
 
-  // Hàm kết nối ví
   const handleConnect = async () => {
     try {
-      // Kết nối với Petra wallet (Aptos)
-      // @ts-ignore - Petra có thể không được định nghĩa trong window
       const petra = window.aptos;
       
       if (!petra) {
@@ -27,23 +24,12 @@ export default function Welcome() {
         return;
       }
       
-      // Kết nối ví
       const response = await petra.connect();
       const address = response.address;
-      
-      // Gọi API connect để lấy token và cập nhật user
-      await connectWallet(address);
-      
-      // Cập nhật state
+    
+      const userData = await connectWallet(address);
       setWalletAddress(address);
-      
-      toast({
-        title: "Connected!",
-        description: "Wallet connected successfully",
-      });
-      
-      // Chuyển hướng đến trang profile
-      navigate("/profile");
+      window.location.href = "/profile";
     } catch (error) {
       console.error("Failed to connect wallet:", error);
       toast({

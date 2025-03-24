@@ -89,7 +89,7 @@ function InventoryItem({
         
         {item.price > 0 && (
           <div className="text-xs text-amber-600 mb-2">
-            Giá bán: {Math.floor(item.price * 0.8)} vàng (80% giá gốc)
+            Price: {Math.floor(item.price * 0.8)} gold (80% of original price)
           </div>
         )}
       </CardContent>
@@ -100,7 +100,7 @@ function InventoryItem({
           className="flex-1"
           onClick={() => onEquip(item.itemId)}
         >
-          {item.isEquipped ? "Tháo" : "Mặc"}
+          {item.isEquipped ? "Unequip" : "Equip"}
         </Button>
         <Button 
           size="sm" 
@@ -109,27 +109,27 @@ function InventoryItem({
           disabled={item.isEquipped}
           onClick={() => setShowSellModal(true)}
         >
-          {item.isEquipped ? "Cần tháo trước" : "Bán"}
+          {item.isEquipped ? "Need to unequip first" : "Sell"}
         </Button>
         
         {showSellModal && (
           <Dialog open={showSellModal} onOpenChange={setShowSellModal}>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Bán vật phẩm</DialogTitle>
+                <DialogTitle>Sell Item</DialogTitle>
                 <DialogDescription>
-                  Bạn có chắc muốn bán "{item.name}" với giá {sellPrice} vàng {sellPrice > 0 ? "(80% giá trị)" : "(0 vàng do không có giá gốc)"}?
+                  Are you sure you want to sell "{item.name}" for {sellPrice} gold {sellPrice > 0 ? "(80% of original price)" : "(0 gold because it has no original price)"}?
                 </DialogDescription>
               </DialogHeader>
               <div className="flex justify-end gap-4 mt-4">
                 <Button variant="outline" onClick={() => setShowSellModal(false)}>
-                  Hủy
+                  Cancel
                 </Button>
                 <Button onClick={() => {
                   onSell(item.itemId);
                   setShowSellModal(false);
                 }}>
-                  Xác nhận
+                  Confirm
                 </Button>
               </div>
             </DialogContent>
@@ -198,10 +198,10 @@ function MarketplaceItem({ item, onBuy, userGold }: {
             {!canAfford ? (
               <>
                 <AlertCircle className="h-4 w-4 mr-1" />
-                Không đủ vàng
+                Not enough gold
               </>
             ) : (
-              "Mua"
+              "Buy"
             )}
           </Button>
         </div>

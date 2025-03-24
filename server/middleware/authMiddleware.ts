@@ -14,10 +14,8 @@ declare global {
 }
 
 // JWT secret - should be in environment variables for production
-const JWT_SECRET = 'healthquest_secret_key';
-const TOKEN_EXPIRY = '7d'; // Token expires after 7 days
-
-// Generate JWT token
+const JWT_SECRET = process.env.JWT_SECRET || 'healthquest_secret_key';
+const TOKEN_EXPIRY = '7d'; 
 export const generateToken = (walletAddress: string): string => {
   return jwt.sign({ walletAddress }, JWT_SECRET, { expiresIn: TOKEN_EXPIRY });
 };

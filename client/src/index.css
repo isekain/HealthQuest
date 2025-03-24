@@ -11,3 +11,24 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+/* Thêm animation cho hiệu ứng gradient cầu vồng */
+@keyframes gradient {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 200% 0%;
+  }
+}
+
+/* Class cho animation */
+.animate-gradient {
+  animation: gradient 3s linear infinite;
+}
+
+/* Class cho background gradient rainbow */
+.bg-gradient-rainbow {
+  background-image: linear-gradient(to right, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #8f00ff);
+  background-size: 200% 100%;
+}

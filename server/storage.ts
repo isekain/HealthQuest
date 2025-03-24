@@ -201,9 +201,9 @@ export class MongoStorage implements IStorage {
       }
 
       // Check if data has been updated and returned correctly
-      console.log('Updated profile from DB:', JSON.stringify(user.profile, null, 2));
-      console.log('Field dietaryRestrictions:', user.profile?.dietaryRestrictions);
-      console.log('Field goalDescription:', user.profile?.goalDescription);
+      // console.log('Updated profile from DB:', JSON.stringify(user.profile, null, 2));
+      // console.log('Field dietaryRestrictions:', user.profile?.dietaryRestrictions);
+      // console.log('Field goalDescription:', user.profile?.goalDescription);
       
       // Return updated data
       return user;

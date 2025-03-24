@@ -26,9 +26,9 @@ import { apiRequest } from "../lib/queryClient";
 import { useAuth } from "../hooks/use-auth";
 import { MultiSelect } from "../components/ui/multi-select";
 import { Checkbox } from "../components/ui/checkbox";
-import { Loader2, Pencil, Wallet } from "lucide-react";
-import React, { useEffect, useState } from 'react';
-import { PageContainer, SectionContainer } from "@/components/ui/container";
+import { Loader2, Pencil } from "lucide-react";
+import React, { useEffect, useState, useMemo } from 'react';
+import { PageContainer } from "@/components/ui/container";
 import { useNavigate } from "react-router-dom";
 
 const profileOptions = {
@@ -74,7 +74,6 @@ const profileOptions = {
   ] as const
 };
 
-// Define our form schema with Zod
 const profileFormSchema = z.object({
   personal: z.object({
     username: z.string().min(3).max(30),
@@ -90,6 +89,7 @@ const profileFormSchema = z.object({
     activityLevel: z.enum(profileOptions.activityLevel),
     workoutDays: z.coerce.number().min(1).max(7),
     workoutDuration: z.coerce.number().min(15).max(120),
+    equipment: z.array(z.string()).optional(),
   }),
   health: z.object({
     medicalConditions: z.string().optional(),
@@ -98,19 +98,20 @@ const profileFormSchema = z.object({
     mentalHealth: z.enum(profileOptions.mentalHealth),
     dietaryRestrictions: z.string().optional(),
     dietType: z.enum(profileOptions.dietType),
+    foodAllergies: z.array(z.string()).optional(),
+    trackNutrition: z.boolean().optional()
   }),
   goals: z.object({
     targetDuration: z.enum(profileOptions.targetDuration),
     goalDescription: z.string().min(5).max(500),
     usesFitnessTracker: z.boolean(),
     fitnessTracker: z.enum(profileOptions.fitnessTrackers).optional(),
+    secondaryGoals: z.array(z.string()).optional(),
   }),
 });
 
-// Infer the type from the schema
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
-// Default values for the form
 const defaultValues: Partial<ProfileFormValues> = {
   personal: {
     username: "",
@@ -126,6 +127,7 @@ const defaultValues: Partial<ProfileFormValues> = {
     activityLevel: "moderately_active",
     workoutDays: 3,
     workoutDuration: 30,
+    equipment: [],
   },
   health: {
     medicalConditions: "",
@@ -134,156 +136,646 @@ const defaultValues: Partial<ProfileFormValues> = {
     mentalHealth: "good",
     dietaryRestrictions: "",
     dietType: "other",
+    foodAllergies: [],
+    trackNutrition: false,
   },
   goals: {
     targetDuration: "mid_term",
     goalDescription: "I want to improve my overall fitness and lose some weight.",
     usesFitnessTracker: false,
     fitnessTracker: undefined,
+    secondaryGoals: [],
   },
 };
 
-const Profile = () => {
-  const { toast } = useToast();
-  const { user } = useAuth();
+// Component Tab Personal
+const PersonalTab = ({ isEditing, form }: { isEditing: boolean, form: any }) => (
+  <Card>
+    <CardHeader>
+      <CardTitle>Personal Information</CardTitle>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <FormField
+          control={form.control}
+          name="personal.username"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Username</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="Enter your username"
+                  {...field}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="personal.age"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Age</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  placeholder="Enter your age"
+                  {...field}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="personal.gender"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Gender</FormLabel>
+              <Select 
+                onValueChange={field.onChange} 
+                defaultValue={field.value} 
+                disabled={!isEditing}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your gender" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {profileOptions.gender.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option.charAt(0).toUpperCase() + option.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="personal.height"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Height (cm)</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  placeholder="Enter your height"
+                  {...field}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="personal.weight"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Weight (kg)</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  placeholder="Enter your weight"
+                  {...field}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+    </CardContent>
+  </Card>
+);
+
+// Component Tab Fitness
+const FitnessTab = ({ isEditing, form }: { isEditing: boolean, form: any }) => (
+  <Card>
+    <CardHeader>
+      <CardTitle>Fitness Information</CardTitle>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <FormField
+          control={form.control}
+          name="fitness.fitnessGoal"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Fitness Goal</FormLabel>
+              <Select 
+                onValueChange={field.onChange} 
+                defaultValue={field.value}
+                disabled={!isEditing}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your fitness goal" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {profileOptions.fitnessGoal.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="fitness.experience"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Experience Level</FormLabel>
+              <Select 
+                onValueChange={field.onChange} 
+                defaultValue={field.value}
+                disabled={!isEditing}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your experience level" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {profileOptions.experience.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option.charAt(0).toUpperCase() + option.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="fitness.preferredActivities"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Preferred Activities (select up to 5)</FormLabel>
+              <FormControl>
+                <MultiSelect
+                  options={profileOptions.preferredActivities.map(activity => ({
+                    label: activity.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '),
+                    value: activity,
+                  }))}
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  placeholder="Select your preferred activities"
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="fitness.activityLevel"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Daily Activity Level</FormLabel>
+              <Select 
+                onValueChange={field.onChange} 
+                defaultValue={field.value}
+                disabled={!isEditing}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your activity level" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {profileOptions.activityLevel.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="fitness.workoutDays"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Workout Days per Week</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  min="1"
+                  max="7"
+                  placeholder="Days per week"
+                  {...field}
+                  onChange={e => field.onChange(Number(e.target.value))}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="fitness.workoutDuration"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Workout Duration (minutes)</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  min="15"
+                  max="120"
+                  placeholder="Minutes per session"
+                  {...field}
+                  onChange={e => field.onChange(Number(e.target.value))}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+    </CardContent>
+  </Card>
+);
+
+// Component Tab Health
+const HealthTab = ({ isEditing, form }: { isEditing: boolean, form: any }) => (
+  <Card>
+    <CardHeader>
+      <CardTitle>Health Information</CardTitle>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <FormField
+          control={form.control}
+          name="health.medicalConditions"
+          render={({ field }) => (
+            <FormItem className="col-span-full">
+              <FormLabel>Medical Conditions (if any)</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="Enter any medical conditions"
+                  {...field}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="health.injuries"
+          render={({ field }) => (
+            <FormItem className="col-span-full">
+              <FormLabel>Injuries or Limitations</FormLabel>
+              <FormControl>
+                <MultiSelect
+                  options={profileOptions.injuries.map(injury => ({
+                    label: injury.charAt(0).toUpperCase() + injury.slice(1),
+                    value: injury,
+                  }))}
+                  value={field.value || []}
+                  onValueChange={field.onChange}
+                  placeholder="Select any current injuries"
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="health.sleepQuality"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Sleep Quality</FormLabel>
+              <Select 
+                onValueChange={field.onChange} 
+                defaultValue={field.value}
+                disabled={!isEditing}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your sleep quality" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {profileOptions.sleepQuality.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option.charAt(0).toUpperCase() + option.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="health.mentalHealth"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Mental Health</FormLabel>
+              <Select 
+                onValueChange={field.onChange} 
+                defaultValue={field.value}
+                disabled={!isEditing}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your mental health status" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {profileOptions.mentalHealth.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option.charAt(0).toUpperCase() + option.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="health.dietaryRestrictions"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Dietary Restrictions</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="Enter any dietary restrictions"
+                  {...field}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="health.dietType"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Diet Type</FormLabel>
+              <Select 
+                onValueChange={field.onChange} 
+                defaultValue={field.value}
+                disabled={!isEditing}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your diet type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {profileOptions.dietType.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option.charAt(0).toUpperCase() + option.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="health.trackNutrition"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <div className="space-y-1 leading-none">
+                <FormLabel>
+                  Track nutrition
+                </FormLabel>
+              </div>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+    </CardContent>
+  </Card>
+);
+
+// Component Tab Goals
+const GoalsTab = ({ isEditing, form }: { isEditing: boolean, form: any }) => (
+  <Card>
+    <CardHeader>
+      <CardTitle>Goals and Preferences</CardTitle>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <FormField
+          control={form.control}
+          name="goals.targetDuration"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Goal Timeframe</FormLabel>
+              <Select 
+                onValueChange={field.onChange} 
+                defaultValue={field.value}
+                disabled={!isEditing}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your goal timeframe" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {profileOptions.targetDuration.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="goals.goalDescription"
+          render={({ field }) => (
+            <FormItem className="col-span-full">
+              <FormLabel>Detailed Goal Description</FormLabel>
+              <FormControl>
+                <textarea
+                  className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Describe your fitness goals in detail"
+                  {...field}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="goals.usesFitnessTracker"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={!isEditing}
+                />
+              </FormControl>
+              <div className="space-y-1 leading-none">
+                <FormLabel>
+                  I use a fitness tracker
+                </FormLabel>
+              </div>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        {form.watch("goals.usesFitnessTracker") && (
+          <FormField
+            control={form.control}
+            name="goals.fitnessTracker"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Fitness Tracker Type</FormLabel>
+                <Select 
+                  onValueChange={field.onChange} 
+                  value={field.value}
+                  disabled={!isEditing}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your fitness tracker" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {profileOptions.fitnessTrackers.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+      </div>
+    </CardContent>
+  </Card>
+);
+
+const useUserProfile = (walletAddress: string | null) => {
   const queryClient = useQueryClient();
-  const [isEditing, setIsEditing] = useState(false);
-  const navigate = useNavigate();
-
-  // Initialize react-hook-form with zod validation
-  const form = useForm<ProfileFormValues>({
-    resolver: zodResolver(profileFormSchema),
-    defaultValues,
-  });
-
-  // Kiểm tra trực tiếp walletAddress từ localStorage thay vì phụ thuộc vào user object
-  const storedWalletAddress = localStorage.getItem("walletAddress");
-
-  // Fetch user profile data
+  const { toast } = useToast();
+  
   const { data: userData, isLoading: profileLoading } = useQuery({
-    queryKey: ["user", storedWalletAddress],
+    queryKey: ["user", walletAddress],
     queryFn: async () => {
-      if (!storedWalletAddress) return null;
-      console.log("Fetching user data for wallet:", storedWalletAddress);
+      if (!walletAddress) return null;
+      
       try {
-        const response = await apiRequest(`/api/users/${storedWalletAddress}`);
-        console.log("User data received:", response);
-        return response; // Trả về toàn bộ user data, bao gồm cả username và profile
+        const response = await apiRequest(`/api/users/${walletAddress}`);
+        return response;
       } catch (error) {
-        console.error("Error fetching user data:", error);
-        // Nếu lỗi 404 (user chưa có trong DB), tự động tạo user mới
         if (error && typeof error === 'object' && 'status' in error && error.status === 404) {
           console.log("User not found, will create new user");
         }
         return null;
       }
     },
-    enabled: !!storedWalletAddress,
+    enabled: !!walletAddress,
   });
 
-  // Update form values when profile data is loaded
-  useEffect(() => {
-    if (userData && userData.profile) {
-      // Transform backend data to match form structure
-      const formData = {
-        personal: {
-          username: userData.username || `User-${storedWalletAddress?.slice(0, 6)}`,
-          age: userData.profile.age || 30,
-          gender: userData.profile.gender || "male",
-          height: userData.profile.height || 175,
-          weight: userData.profile.weight || 70,
-        },
-        fitness: {
-          fitnessGoal: userData.profile.fitnessGoal || "weight_loss",
-          experience: userData.profile.experience || "beginner",
-          preferredActivities: userData.profile.preferredActivities || ["running"],
-          activityLevel: userData.profile.activityLevel || "moderately_active",
-          workoutDays: userData.profile.workoutFrequency?.sessionsPerWeek || 3,
-          workoutDuration: userData.profile.workoutFrequency?.minutesPerSession || 30,
-        },
-        health: {
-          medicalConditions: userData.profile.medicalConditions || "",
-          injuries: Array.isArray(userData.profile.injuries) ? userData.profile.injuries : [],
-          sleepQuality: userData.profile.sleepQuality || "good",
-          mentalHealth: userData.profile.mentalHealth || "good",
-          dietaryRestrictions: userData.profile.dietaryRestrictions || "",
-          dietType: userData.profile.dietType || "other",
-        },
-        goals: {
-          targetDuration: userData.profile.targetDuration || "mid_term",
-          goalDescription: userData.profile.goalDescription || "I want to improve my overall fitness and lose some weight.",
-          usesFitnessTracker: !!userData.profile.fitnessTracker,
-          fitnessTracker: userData.profile.fitnessTracker || undefined,
-        },
-      };
-      
-      form.reset(formData);
-    }
-  }, [userData, form, storedWalletAddress]);
-
-  // Tự động mở form chỉnh sửa khi profile chưa có dữ liệu đầy đủ
-  useEffect(() => {
-    if (storedWalletAddress && userData && userData.profile) {
-      // Kiểm tra xem profile có thiếu thông tin không
-      const hasEmptyFields = 
-        !userData.profile.age || 
-        !userData.profile.gender || 
-        !userData.profile.height || 
-        !userData.profile.weight ||
-        !userData.profile.fitnessGoal ||
-        !userData.profile.preferredActivities ||
-        userData.profile.preferredActivities.length === 0;
-      
-      if (hasEmptyFields && !isEditing) {
-        setIsEditing(true);
-        
-      }
-    }
-  }, [userData, storedWalletAddress, isEditing, toast]);
-
-  // Tự động tạo user mới nếu đã kết nối ví nhưng chưa có trong CSDL
-  useEffect(() => {
-    if (storedWalletAddress && !userData && !profileLoading) {
-      console.log("Trying to create new user for wallet:", storedWalletAddress);
-      
-      // Tạo username mặc định từ địa chỉ ví
-      const defaultUsername = `User-${storedWalletAddress.slice(0, 6)}`;
-      
-      // Tạo mới user với API
-      apiRequest(`/api/users`, {
+  const createUser = async () => {
+    if (!walletAddress || userData) return;
+    
+    const defaultUsername = `User-${walletAddress.slice(0, 6)}`;
+    
+    try {
+      const response = await apiRequest(`/api/users`, {
         method: "POST",
         data: {
-          walletAddress: storedWalletAddress,
+          walletAddress: walletAddress,
           username: defaultUsername,
         }
-      })
-      .then(response => {
-        console.log("User created successfully:", response);
-        
-        // Làm mới query cache để lấy thông tin user mới
-        queryClient.invalidateQueries({ queryKey: ["user", storedWalletAddress] });
-        queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-        
-        // Bật chế độ chỉnh sửa form
-        setIsEditing(true);
-        
-        toast({
-          title: "Xin chào!",
-          description: "Hãy hoàn thành thông tin profile của bạn để có trải nghiệm tốt nhất.",
-        });
-      })
-      .catch(error => {
-        console.error("Error creating user:", error);
       });
+      
+      queryClient.invalidateQueries({ queryKey: ["user", walletAddress] });
+      
+      toast({
+        title: "Hello!",
+        description: "Please complete your profile information to have the best experience.",
+      });
+      
+      return response;
+    } catch (error) {
+      console.error("Error creating user:", error);
+      return null;
     }
-  }, [storedWalletAddress, userData, profileLoading, queryClient, toast, setIsEditing]);
-
-  // Update profile mutation
+  };
   const { mutate: updateProfile, isPending: isUpdating } = useMutation({
     mutationFn: async (values: ProfileFormValues) => {
-      if (!storedWalletAddress) throw new Error("No wallet address");
+      if (!walletAddress) throw new Error("No wallet address");
       
-      // Transform form data to match backend structure
       const profileData = {
         username: values.personal.username,
         age: values.personal.age,
@@ -300,38 +792,25 @@ const Profile = () => {
         },
         medicalConditions: values.health.medicalConditions || '',
         injuries: values.health.injuries || [],
-        sleepQuality: values.health.sleepQuality || '',
-        mentalHealth: values.health.mentalHealth || '',
+        sleepQuality: values.health.sleepQuality,
+        mentalHealth: values.health.mentalHealth,
         dietaryRestrictions: values.health.dietaryRestrictions || '',
-        dietType: values.health.dietType || '',
+        dietType: values.health.dietType,
+        trackNutrition: values.health.trackNutrition || false,
         foodAllergies: values.health.foodAllergies || [],
+        targetDuration: values.goals.targetDuration,
+        goalDescription: values.goals.goalDescription,
         secondaryGoals: values.goals.secondaryGoals || [],
         equipment: values.fitness.equipment || [],
-        targetDuration: values.goals.targetDuration || '',
-        goalDescription: values.goals.goalDescription || '',
-        trackNutrition: values.health.trackNutrition || false,
         fitnessTracker: values.goals.usesFitnessTracker && values.goals.fitnessTracker ? values.goals.fitnessTracker : '',
       };
       
-      // Chuyển đổi các trường đơn sang mảng nếu cần
-      profileData.fitnessTrackers = profileData.fitnessTracker ? [profileData.fitnessTracker] : [];
-      
-      console.log("Updating profile with data:", JSON.stringify(profileData, null, 2));
       try {
-        // In ra chi tiết đầy đủ để debug
-        console.log("Diet Restrictions:", profileData.dietaryRestrictions);
-        console.log("Goal Description:", profileData.goalDescription);
-        console.log("Uses Fitness Tracker:", values.goals.usesFitnessTracker);
-        console.log("Fitness Tracker Type:", profileData.fitnessTracker);
-        
-        // Sử dụng endpoint PATCH /api/users/{walletAddress}/profile để cập nhật
-        const response = await apiRequest(`/api/users/${storedWalletAddress}/profile`, {
+        const response = await apiRequest(`/api/users/${walletAddress}/profile`, {
           method: "PATCH",
           data: profileData
         });
-        
-        // In ra response để debug
-        console.log("Profile update response:", response);
+
         return response;
       } catch (error) {
         console.error("Error updating profile:", error);
@@ -344,25 +823,15 @@ const Profile = () => {
         description: "Your profile has been updated successfully.",
       });
       
-      // Làm mới dữ liệu người dùng
-      queryClient.invalidateQueries({ queryKey: ["user", storedWalletAddress] });
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: ["user", walletAddress] });
       
-      // Đóng form chỉnh sửa
-      setIsEditing(false);
-      
-      // Kiểm tra nếu người dùng chưa có NFT thì chuyển hướng đến trang mint NFT
-      if (data && !data.nftTokenId) {
-        // Hiển thị thông báo trước khi chuyển hướng
+      if (data) {
         toast({
-          title: "Chuẩn bị mint NFT",
-          description: "Bạn sẽ được chuyển đến trang mint NFT trong giây lát...",
+          title: "Redirect",
+          description: "Success you will be redirected in a moment...",
         });
         
-        // Để thời gian dài hơn để người dùng đọc thông báo
-        setTimeout(() => {
-          navigate("/mint-nft");
-        }, 3500);
+        return data;
       }
     },
     onError: (error) => {
@@ -374,9 +843,112 @@ const Profile = () => {
     },
   });
 
-  function onSubmit(values: ProfileFormValues) {
-    updateProfile(values);
-  }
+  return {
+    userData,
+    profileLoading,
+    createUser,
+    updateProfile,
+    isUpdating
+  };
+};
+
+const Profile = () => {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [isEditing, setIsEditing] = useState(false);
+  const navigate = useNavigate();
+  
+  const storedWalletAddress = localStorage.getItem("walletAddress");
+  
+  const { 
+    userData, 
+    profileLoading, 
+    createUser, 
+    updateProfile, 
+    isUpdating 
+  } = useUserProfile(storedWalletAddress);
+
+  const form = useForm<ProfileFormValues>({
+    resolver: zodResolver(profileFormSchema),
+    defaultValues,
+  });
+
+  useEffect(() => {
+    if (storedWalletAddress && !userData && !profileLoading) {
+      createUser();
+    }
+  }, [storedWalletAddress, userData, profileLoading]);
+
+  useEffect(() => {
+    if (userData && userData.profile) {
+      const formData = {
+        personal: {
+          username: userData.username || `User-${storedWalletAddress?.slice(0, 6)}`,
+          age: userData.profile.age || 30,
+          gender: userData.profile.gender || "male",
+          height: userData.profile.height || 175,
+          weight: userData.profile.weight || 70,
+        },
+        fitness: {
+          fitnessGoal: userData.profile.fitnessGoal || "weight_loss",
+          experience: userData.profile.experience || "beginner",
+          preferredActivities: userData.profile.preferredActivities || ["running"],
+          activityLevel: userData.profile.activityLevel || "moderately_active",
+          workoutDays: userData.profile.workoutFrequency?.sessionsPerWeek || 3,
+          workoutDuration: userData.profile.workoutFrequency?.minutesPerSession || 30,
+          equipment: userData.profile.equipment || [],
+        },
+        health: {
+          medicalConditions: userData.profile.medicalConditions || "",
+          injuries: Array.isArray(userData.profile.injuries) ? userData.profile.injuries : [],
+          sleepQuality: userData.profile.sleepQuality || "good",
+          mentalHealth: userData.profile.mentalHealth || "good",
+          dietaryRestrictions: userData.profile.dietaryRestrictions || "",
+          dietType: userData.profile.dietType || "other",
+          foodAllergies: userData.profile.foodAllergies || [],
+          trackNutrition: userData.profile.trackNutrition || false,
+        },
+        goals: {
+          targetDuration: userData.profile.targetDuration || "mid_term",
+          goalDescription: userData.profile.goalDescription || "I want to improve my overall fitness and lose some weight.",
+          usesFitnessTracker: !!userData.profile.fitnessTracker,
+          fitnessTracker: userData.profile.fitnessTracker || undefined,
+          secondaryGoals: userData.profile.secondaryGoals || [],
+        },
+      };
+      
+      form.reset(formData);
+    }
+  }, [userData, form, storedWalletAddress]);
+
+  const isProfileIncomplete = useMemo(() => {
+    if (!userData || !userData.profile) return true;
+    
+    return !userData.profile.age || 
+      !userData.profile.gender || 
+      !userData.profile.height || 
+      !userData.profile.weight ||
+      !userData.profile.fitnessGoal ||
+      !userData.profile.preferredActivities ||
+      userData.profile.preferredActivities.length === 0;
+  }, [userData]);
+
+  useEffect(() => {
+    if (storedWalletAddress && isProfileIncomplete && !isEditing) {
+      setIsEditing(true);
+    }
+  }, [storedWalletAddress, isProfileIncomplete, isEditing]);
+
+  const onSubmit = (values: ProfileFormValues) => {
+    updateProfile(values, {
+      onSuccess: (data) => {
+        setIsEditing(false);
+        setTimeout(() => {
+          navigate("/mint-nft");
+        }, 1500);
+      }
+    });
+  };
 
   if (profileLoading) {
     return (
@@ -386,7 +958,6 @@ const Profile = () => {
     );
   }
 
-  // Kiểm tra nếu không có ví được kết nối (không có trong localStorage)
   if (!storedWalletAddress) {
     return (
       <div className="container mx-auto py-10">
@@ -425,562 +996,20 @@ const Profile = () => {
                 <TabsTrigger value="goals" className="flex-1">Goals</TabsTrigger>
               </TabsList>
               
-              {/* Personal Information Tab */}
               <TabsContent value="personal">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Personal Information</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="personal.username"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Username</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder="Enter your username"
-                                {...field}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="personal.age"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Age</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                placeholder="Enter your age"
-                                {...field}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="personal.gender"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Gender</FormLabel>
-                            <Select 
-                              onValueChange={field.onChange} 
-                              defaultValue={field.value} 
-                              disabled={!isEditing}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select your gender" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {profileOptions.gender.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option.charAt(0).toUpperCase() + option.slice(1)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="personal.height"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Height (cm)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                placeholder="Enter your height"
-                                {...field}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="personal.weight"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Weight (kg)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                placeholder="Enter your weight"
-                                {...field}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+                <PersonalTab isEditing={isEditing} form={form} />
               </TabsContent>
               
-              {/* Fitness Tab */}
               <TabsContent value="fitness">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Fitness Information</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="fitness.fitnessGoal"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Fitness Goal</FormLabel>
-                            <Select 
-                              onValueChange={field.onChange} 
-                              defaultValue={field.value}
-                              disabled={!isEditing}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select your fitness goal" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {profileOptions.fitnessGoal.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="fitness.experience"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Experience Level</FormLabel>
-                            <Select 
-                              onValueChange={field.onChange} 
-                              defaultValue={field.value}
-                              disabled={!isEditing}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select your experience level" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {profileOptions.experience.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option.charAt(0).toUpperCase() + option.slice(1)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="fitness.preferredActivities"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Preferred Activities (select up to 5)</FormLabel>
-                            <FormControl>
-                              <MultiSelect
-                                options={profileOptions.preferredActivities.map(activity => ({
-                                  label: activity.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '),
-                                  value: activity,
-                                }))}
-                                value={field.value}
-                                onValueChange={field.onChange}
-                                placeholder="Select your preferred activities"
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="fitness.activityLevel"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Daily Activity Level</FormLabel>
-                            <Select 
-                              onValueChange={field.onChange} 
-                              defaultValue={field.value}
-                              disabled={!isEditing}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select your activity level" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {profileOptions.activityLevel.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="fitness.workoutDays"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Workout Days per Week</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                min="1"
-                                max="7"
-                                placeholder="Days per week"
-                                {...field}
-                                onChange={e => field.onChange(Number(e.target.value))}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="fitness.workoutDuration"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Workout Duration (minutes)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                min="15"
-                                max="120"
-                                placeholder="Minutes per session"
-                                {...field}
-                                onChange={e => field.onChange(Number(e.target.value))}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+                <FitnessTab isEditing={isEditing} form={form} />
               </TabsContent>
               
-              {/* Health Tab */}
               <TabsContent value="health">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Health Information</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="health.medicalConditions"
-                        render={({ field }) => (
-                          <FormItem className="col-span-full">
-                            <FormLabel>Medical Conditions (if any)</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder="Enter any medical conditions"
-                                {...field}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="health.injuries"
-                        render={({ field }) => (
-                          <FormItem className="col-span-full">
-                            <FormLabel>Injuries or Limitations</FormLabel>
-                            <FormControl>
-                              <MultiSelect
-                                options={[
-                                  { label: "Knee", value: "knee" },
-                                  { label: "Back", value: "back" },
-                                  { label: "Shoulder", value: "shoulder" },
-                                  { label: "Hip", value: "hip" },
-                                  { label: "Wrist", value: "wrist" },
-                                  { label: "Ankle", value: "ankle" },
-                                  { label: "Neck", value: "neck" },
-                                ]}
-                                value={field.value || []}
-                                onValueChange={field.onChange}
-                                placeholder="Select any current injuries"
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="health.sleepQuality"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Sleep Quality</FormLabel>
-                            <Select 
-                              onValueChange={field.onChange} 
-                              defaultValue={field.value}
-                              disabled={!isEditing}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select your sleep quality" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {profileOptions.sleepQuality.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option.charAt(0).toUpperCase() + option.slice(1)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="health.mentalHealth"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Mental Health</FormLabel>
-                            <Select 
-                              onValueChange={field.onChange} 
-                              defaultValue={field.value}
-                              disabled={!isEditing}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select your mental health status" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {profileOptions.mentalHealth.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option.charAt(0).toUpperCase() + option.slice(1)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="health.dietaryRestrictions"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Dietary Restrictions</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder="Enter any dietary restrictions"
-                                {...field}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="health.dietType"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Diet Type</FormLabel>
-                            <Select 
-                              onValueChange={field.onChange} 
-                              defaultValue={field.value}
-                              disabled={!isEditing}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select your diet type" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {profileOptions.dietType.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option.charAt(0).toUpperCase() + option.slice(1)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+                <HealthTab isEditing={isEditing} form={form} />
               </TabsContent>
               
-              {/* Goals Tab */}
               <TabsContent value="goals">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Goals and Preferences</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="goals.targetDuration"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Goal Timeframe</FormLabel>
-                            <Select 
-                              onValueChange={field.onChange} 
-                              defaultValue={field.value}
-                              disabled={!isEditing}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select your goal timeframe" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {profileOptions.targetDuration.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="goals.goalDescription"
-                        render={({ field }) => (
-                          <FormItem className="col-span-full">
-                            <FormLabel>Detailed Goal Description</FormLabel>
-                            <FormControl>
-                              <textarea
-                                className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                placeholder="Describe your fitness goals in detail"
-                                {...field}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="goals.usesFitnessTracker"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                            <FormControl>
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                                disabled={!isEditing}
-                              />
-                            </FormControl>
-                            <div className="space-y-1 leading-none">
-                              <FormLabel>
-                                I use a fitness tracker
-                              </FormLabel>
-                            </div>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      {form.watch("goals.usesFitnessTracker") && (
-                        <FormField
-                          control={form.control}
-                          name="goals.fitnessTracker"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Fitness Tracker Type</FormLabel>
-                              <Select 
-                                onValueChange={field.onChange} 
-                                value={field.value}
-                                disabled={!isEditing}
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select your fitness tracker" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {profileOptions.fitnessTrackers.map((option) => (
-                                    <SelectItem key={option} value={option}>
-                                      {option.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                <GoalsTab isEditing={isEditing} form={form} />
               </TabsContent>
             </Tabs>
             

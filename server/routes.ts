@@ -11,6 +11,10 @@ import { NFTItem } from "./models/NFTItem";
 import { QuestHistory } from "./models/QuestHistory";
 import authRoutes from './routes/authRoutes';
 import questRoutes from './routes/questRoutes';
+import { Boss } from "./models/Boss";
+import { BossDamage } from "./models/BossDamage";
+import mongoose from "mongoose";
+import { OpenAI } from "openai";
 
 export async function registerRoutes(app: Express) {
   // Auth routes
@@ -440,12 +444,7 @@ export async function registerRoutes(app: Express) {
 
   app.patch("/api/users/:walletAddress/profile", authenticate, verifyDbToken, verifyWalletOwnership, async (req, res) => {
     try {
-      console.log('Request body (detailed):', JSON.stringify(req.body, null, 2));
-      console.log('Diet restrictions value:', req.body.dietaryRestrictions);
-      console.log('Goal description value:', req.body.goalDescription);
-      console.log('Fitness tracker value:', req.body.fitnessTracker);
-      console.log('Fitness trackers value:', req.body.fitnessTrackers);
-      console.log('Request body:', JSON.stringify(req.body, null, 2));
+      
 
       const profileSchema = z.object({
         username: z.string().min(3).max(30).optional(),
@@ -489,11 +488,6 @@ export async function registerRoutes(app: Express) {
 
       try {
         const validatedProfile = profileSchema.parse(req.body);
-        console.log('Validated profile:', JSON.stringify(validatedProfile, null, 2));
-        console.log('Validated dietaryRestrictions:', validatedProfile.dietaryRestrictions);
-        console.log('Validated goalDescription:', validatedProfile.goalDescription);
-        console.log('Validated fitnessTracker:', validatedProfile.fitnessTracker);
-        console.log('Validated fitnessTrackers:', validatedProfile.fitnessTrackers);
         
         const user = await storage.updateUserProfile(req.params.walletAddress, validatedProfile);
 
@@ -502,11 +496,6 @@ export async function registerRoutes(app: Express) {
           return;
         }
 
-        // Check user data before returning response
-        console.log('USER RESPONSE OBJECT:', JSON.stringify(user, null, 2));
-        console.log('USER PROFILE OBJECT:', JSON.stringify(user.profile, null, 2));
-        console.log('USER dietaryRestrictions:', user.profile.dietaryRestrictions);
-        console.log('USER goalDescription:', user.profile.goalDescription);
 
         res.json(user);
       } catch (error) {
@@ -601,7 +590,11 @@ export async function registerRoutes(app: Express) {
       res.status(404).json({ error: "NFT stats not found" });
       return;
     }
-    res.json(stats);
+    const statsObj = stats.toObject ? stats.toObject() : stats;
+    res.json({
+      ...statsObj,
+      maxEnergy: 100
+    });
   });
 
   app.patch("/api/users/:walletAddress/nft-stats", async (req, res) => {
@@ -624,11 +617,57 @@ export async function registerRoutes(app: Express) {
   });
 
   // Leaderboard route
-  app.get("/api/leaderboard", async (_req, res) => {
+  app.get("/api/leaderboard", async (req, res) => {
     try {
-      const users = await storage.getLeaderboard();
-      res.json(users);
+      const { period = 'all' } = req.query;
+      
+      let startDate = null;
+      const now = new Date();
+      
+      if (period === 'day') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      } else if (period === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 7);
+      } else if (period === 'month') {
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 30);
+      }
+      let query = {};
+      if (startDate) {
+        query = { completedAt: { $gte: startDate } };
+      }
+      const questStats = await QuestHistory.aggregate([
+        { $match: query },
+        { 
+          $group: { 
+            _id: "$userWallet", 
+            questCount: { $sum: 1 },
+            sumEstimatedTime: { $sum: "$estimatedTime" },
+          } 
+        },
+        { $sort: { questCount: -1 } },
+        { $limit: 50 }
+      ]);
+      const walletAddresses = questStats.map(stat => stat._id);
+      const users = await User.find(
+        { walletAddress: { $in: walletAddresses } },
+        'walletAddress username'  
+      );
+      const leaderboardData = questStats.map((stat, index) => {
+        const user = users.find(u => u.walletAddress === stat._id);
+        return {
+          rank: index + 1,
+          walletAddress: stat._id,
+          username: user?.username || `User-${stat._id.slice(0, 6)}`,
+          questCount: stat.questCount,
+          sumEstimatedTime: stat.sumEstimatedTime
+        };
+      });
+      
+      res.json(leaderboardData);
     } catch (error) {
+      console.error("Error getting leaderboard:", error);
       res.status(500).json({ error: "Failed to fetch leaderboard" });
     }
   });
@@ -1031,7 +1070,6 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  // Thêm route để cập nhật năng lượng NFT
   app.post("/api/users/:walletAddress/nft-stats/update-energy", authenticate, async (req, res) => {
     try {
       const { walletAddress } = req.params;
@@ -1085,6 +1123,390 @@ export async function registerRoutes(app: Express) {
   
   // Register quest routes
   app.use('/api/quests', questRoutes);
+
+  app.get("/api/boss/current", async (_req, res) => {
+    try {
+      const boss = await Boss.findOne({ isActive: true, isDefeated: false })
+        .sort({ createdAt: -1 });
+      
+      if (!boss) {
+        return res.status(404).json({ error: "No active boss found" });
+      }
+      
+      res.json(boss);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch current boss" });
+    }
+  });
+
+  // Get boss leaderboard
+  app.get("/api/boss/:bossId/leaderboard", async (req, res) => {
+    try {
+      const { bossId } = req.params;
+      
+      const leaderboard = await BossDamage.aggregate([
+        { $match: { bossId: new mongoose.Types.ObjectId(bossId) } },
+        { 
+          $group: { 
+            _id: "$userWallet", 
+            totalDamage: { $sum: "$damage" },
+            totalXpEarned: { $sum: "$rewardsXp" },
+            totalGoldEarned: { $sum: "$rewardsGold" },
+            lastAttack: { $max: "$timestamp" }
+          } 
+        },
+        { $sort: { totalDamage: -1 } },
+        { $limit: 50 }
+      ]);
+      
+      // Get username from users table
+      const walletAddresses = leaderboard.map(entry => entry._id);
+      const users = await User.find({ walletAddress: { $in: walletAddresses } });
+      
+      const result = leaderboard.map((entry, index) => {
+        const user = users.find(u => u.walletAddress === entry._id);
+        return {
+          rank: index + 1,
+          walletAddress: entry._id,
+          username: user?.username || `User-${entry._id.slice(0, 6)}`,
+          totalDamage: entry.totalDamage,
+          totalXpEarned: entry.totalXpEarned,
+          totalGoldEarned: entry.totalGoldEarned,
+          lastAttack: entry.lastAttack
+        };
+      });
+      
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch boss leaderboard" });
+    }
+  });
+
+  // API get boss attack history of user
+  app.get("/api/users/:walletAddress/boss-history", async (req, res) => {
+    try {
+      const { walletAddress } = req.params;
+      
+      // Get boss attack history
+      const history = await BossDamage.find({ userWallet: walletAddress })
+        .sort({ timestamp: -1 })
+        .limit(50);
+      
+      if (!history || history.length === 0) {
+        return res.json([]);
+      }
+      
+      // Get all boss ids from history
+      const bossIds = new Set(history.map(entry => entry.bossId));
+      
+      // Get boss information
+      const bosses = await Boss.find({ _id: { $in: Array.from(bossIds) } });
+      
+      // Map data to return
+      const result = history.map(entry => {
+        const boss = bosses.find(b => b._id.toString() === entry.bossId.toString());
+        return {
+          id: entry._id,
+          bossId: entry.bossId,
+          bossName: boss?.name || "Unknown Boss",
+          bossLevel: boss?.level || 0,
+          damage: entry.damage,
+          rewardsXp: entry.rewardsXp,
+          rewardsGold: entry.rewardsGold,
+          battleDescription: entry.battleDescription || "",
+          shortDescription: entry.shortDescription || "",
+          isCritical: entry.isCritical || false,
+          specialEffects: entry.specialEffects || [],
+          timestamp: entry.timestamp
+        };
+      });
+      
+      // Log return data for debugging
+      console.log("History data:", result.map(item => ({
+        id: item.id,
+        battleDescription: item.battleDescription ? 
+          (item.battleDescription.length > 50 ? item.battleDescription.substring(0, 50) + '...' : item.battleDescription) 
+          : 'Missing'
+      })));
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching boss history:", error);
+      res.status(500).json({ error: "Failed to fetch boss attack history" });
+    }
+  });
+
+  // API attack boss
+  app.post("/api/boss/:bossId/attack", authenticate, async (req, res) => {
+    try {
+      const { bossId } = req.params;
+      const { walletAddress, damage } = req.body;
+      
+      if (!walletAddress) {
+        return res.status(400).json({ error: "Wallet address is required" });
+      }
+      const boss = await Boss.findOne({ 
+        _id: bossId,
+        isActive: true,
+        isDefeated: false
+      });
+      
+      if (!boss) {
+        return res.status(404).json({ error: "Boss does not exist or has been defeated" });
+      }
+      const user = await User.findOne({ walletAddress });
+      if (!user) {
+        return res.status(404).json({ error: "User does not exist" });
+      }
+      const nftStats = await NFTStats.findOne({ userWallet: walletAddress });
+      if (!nftStats) {
+        return res.status(400).json({ error: "User does not have NFT" });
+      }
+      
+      if (nftStats.level < boss.minLevelRequired) {
+        return res.status(400).json({ 
+          error: `You need to reach level ${boss.minLevelRequired} to fight this boss` 
+        });
+      }
+      const energyCost = 10; 
+      
+      if (nftStats.energy === undefined || nftStats.energy < energyCost) {
+        return res.status(400).json({ 
+          error: `Not enough energy. Need ${energyCost} energy to attack boss`,
+          currentEnergy: nftStats.energy || 0,
+          requiredEnergy: energyCost
+        });
+      }
+      const attackCost = 100; 
+      
+      if (user.gold === undefined || user.gold < attackCost) {
+        return res.status(400).json({ 
+          error: `Not enough gold to attack. Need ${attackCost} gold` 
+        });
+      }
+      
+      await User.updateOne(
+        { walletAddress },
+        { $inc: { gold: -attackCost } }
+      );
+      
+      await NFTStats.updateOne(
+        { userWallet: walletAddress },
+        { $inc: { energy: -energyCost } }
+      );
+      
+      if (!process.env.OPENAI_API_KEY) {
+        return res.status(500).json({ error: "Server configuration error" });
+      }
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+      
+      const prompt = `
+Describe a dramatic and creative battle between a player and a boss in an RPG game based on the following information.:
+
+PLAYER INFORMATION:
+- Name: ${user.username || "Warrior"}
+- Level: ${nftStats.level}
+- Strength (STR): ${nftStats.STR || 0}
+- Agility (AGI): ${nftStats.AGI || 0}
+- Vitality (VIT): ${nftStats.VIT || 0}
+- Dexterity (DEX): ${nftStats.DEX || 0}
+- Intelligence (INT): ${nftStats.INT || 0}
+- Wisdom (WIS): ${nftStats.WIS || 0}
+- Luck (LUK): ${nftStats.LUK || 0}
+
+BOSS INFORMATION:
+- Name: ${boss.name}
+- Description: ${boss.description}
+- Level: ${boss.level}
+- Current health: ${boss.health}/${boss.maxHealth}
+- Strength (STR): ${boss.STR}
+- Agility (AGI): ${boss.AGI}
+- Vitality (VIT): ${boss.VIT}
+- Dexterity (DEX): ${boss.DEX}
+- Intelligence (INT): ${boss.INT}
+- Abilities: ${boss.abilities ? boss.abilities.join(", ") : "None"}
+- Weaknesses: ${boss.weaknesses ? boss.weaknesses.join(", ") : "None"}
+- Immunities: ${boss.immunities ? boss.immunities.join(", ") : "None"}
+
+Describe the battle in detail with a heroic, dramatic tone.
+Calculate the appropriate amount of damage the player can deal to the boss based on their stats.
+
+Return the result in JSON format:
+{
+  "battleDescription": "Battle detail",
+  "shortDescription": "Short description (max 50 characters)",
+  "damage": <damage>,
+  "isCritical": true/false,
+  "specialEffects": ["special effects if any"]
+} `;
+      
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { 
+              role: "system", 
+              content: "You are a game master describing battles in an RPG game in a detailed and dramatic way. Please return the result in the exact JSON format as requested." 
+            },
+            { 
+              role: "user", 
+              content: prompt 
+            }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.7,
+        });
+        const battleResult = JSON.parse(completion.choices[0].message.content.trim());
+        const damage = battleResult.damage;
+        const damagePercent = (damage / boss.maxHealth) * 100;
+        const rewardsXp = Math.round(boss.rewardsXp * damagePercent);
+        const rewardsGold = Math.round(boss.rewardsGold * damagePercent);
+        const bossDamage = new BossDamage({
+          userWallet: walletAddress,
+          bossId: boss._id,
+          damage,
+          rewardsXp,
+          rewardsGold,
+          battleDescription: battleResult.battleDescription,
+          isCritical: battleResult.isCritical,
+          specialEffects: battleResult.specialEffects || []
+        });
+        
+        await bossDamage.save();
+        boss.health = Math.max(0, boss.health - damage);
+        if (boss.health <= 0) {
+          boss.isDefeated = true;
+          boss.defeatDate = new Date();
+        }
+        
+        await boss.save();
+        await User.updateOne(
+          { walletAddress },
+          { $inc: { xp: rewardsXp, gold: rewardsGold } } 
+        );
+        const updatedNFTStats = await NFTStats.findOne({ userWallet: walletAddress });
+        let levelUp = false;
+        
+        if (updatedNFTStats && updatedNFTStats.xp >= updatedNFTStats.xpToNextLevel) {
+          const xpRemainder = updatedNFTStats.xp - updatedNFTStats.xpToNextLevel;
+          const newLevel = updatedNFTStats.level + 1;
+          const newXpToNextLevel = 100 * Math.pow(1.5, newLevel - 1);
+          
+          await NFTStats.updateOne(
+            { userWallet: walletAddress },
+            { 
+              $set: { 
+                level: newLevel,
+                xp: xpRemainder,
+                xpToNextLevel: newXpToNextLevel,
+                statsPoints: (updatedNFTStats.statsPoints || 0) + 5
+              }
+            }
+          );
+          
+          levelUp = true;
+        }
+        res.json({
+          ...battleResult,
+          rewardsXp,
+          rewardsGold,
+          netGold: rewardsGold - attackCost,
+          bossHealth: boss.health,
+          bossMaxHealth: boss.maxHealth,
+          bossDefeated: boss.health <= 0,
+          levelUp
+        });
+        
+      } catch (openaiError) {
+        console.error("OpenAI API error:", openaiError);
+        
+        const baseDamage = 20 + (nftStats.level * 5);
+        const strBonus = (nftStats.STR || 0) * 2;
+        const agiBonus = (nftStats.AGI || 0) * 1.5;
+        const isCritical = Math.random() < 0.2;
+        
+        let damage = baseDamage + strBonus + agiBonus;
+        if (isCritical) damage *= 2;
+        damage = Math.floor(damage);
+        const damagePercent = damage / boss.maxHealth;
+        const rewardsXp = Math.round(boss.rewardsXp * damagePercent);
+        const rewardsGold = Math.round(boss.rewardsGold * damagePercent);
+        const battleDescription = isCritical
+          ? `${user.username || "You"} unleashed a critical attack on ${boss.name}, dealing ${damage} damage! The enemy staggered back, blood seeping from the deep wounds. Your attack was too powerful for ${boss.name} to react in time.`
+          : `${user.username || "You"} attacked ${boss.name}, dealing ${damage} damage! Your quick and precise attack made the enemy stagger back. ${boss.name} let out a painful groan before preparing to counterattack.`;
+        
+        const shortDescription = isCritical
+          ? `Critical hit! Caused ${damage} damage.`
+          : `Successful attack! Caused ${damage} damage.`;
+        
+        const bossDamage = new BossDamage({
+          userWallet: walletAddress,
+          bossId: boss._id,
+          damage,
+          rewardsXp,
+          rewardsGold,
+          battleDescription,
+          isCritical,
+          specialEffects: []
+        });
+        
+        await bossDamage.save();
+        boss.health = Math.max(0, boss.health - damage);
+        if (boss.health <= 0) {
+          boss.isDefeated = true;
+          boss.defeatDate = new Date();
+        }
+        
+        await boss.save();
+        await User.updateOne(
+          { walletAddress },
+          { $inc: { xp: rewardsXp, gold: rewardsGold } }
+        );
+        const updatedNFTStats = await NFTStats.findOne({ userWallet: walletAddress });
+        let levelUp = false;
+        
+        if (updatedNFTStats && updatedNFTStats.xp >= updatedNFTStats.xpToNextLevel) {
+          const xpRemainder = updatedNFTStats.xp - updatedNFTStats.xpToNextLevel;
+          const newLevel = updatedNFTStats.level + 1;
+          const newXpToNextLevel = 100 * Math.pow(1.5, newLevel - 1);
+          
+          await NFTStats.updateOne(
+            { userWallet: walletAddress },
+            { 
+              $set: { 
+                level: newLevel,
+                xp: xpRemainder,
+                xpToNextLevel: newXpToNextLevel,
+                statsPoints: (updatedNFTStats.statsPoints || 0) + 5
+              }
+            }
+          );
+          
+          levelUp = true;
+        }
+        res.json({
+          battleDescription,
+          shortDescription,
+          damage,
+          isCritical,
+          specialEffects: [],
+          rewardsXp,
+          rewardsGold,
+          netGold: rewardsGold - attackCost,
+          bossHealth: boss.health,
+          bossMaxHealth: boss.maxHealth,
+          bossDefeated: boss.health <= 0,
+          levelUp
+        });
+      }
+      
+    } catch (error) {
+      console.error("Attack boss error:", error);
+      res.status(500).json({ error: "Error attacking boss" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

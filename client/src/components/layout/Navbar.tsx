@@ -11,15 +11,14 @@ import {
 } from "@/components/ui/sheet";
 import { 
   Menu, 
-  Brain, 
   Trophy, 
-  Award, 
   Wallet, 
   Home, 
-  Dumbbell, 
+  CircleGauge, 
   User,
-  Diamond,
-  Swords
+  Store,
+  ScrollText,
+  Sword
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { connectWallet, disconnectWallet } from "@/utils/api";
@@ -31,11 +30,11 @@ import { useStore } from "@/store";
 // Menu items
 const menuItems = [
   { name: "Home", path: "/", icon: <Home className="h-5 w-5" /> },
-  { name: "Dashboard", path: "/dashboard", icon: <Dumbbell className="h-5 w-5" /> },
-  { name: "Quests", path: "/quests", icon: <Swords className="h-5 w-5" /> },
-  { name: "Achievements", path: "/achievements", icon: <Award className="h-5 w-5" /> },
+  { name: "Dashboard", path: "/dashboard", icon: <CircleGauge className="h-5 w-5" /> },
+  { name: "Quests", path: "/quests", icon: <ScrollText className="h-5 w-5" /> },
+  { name: "Boss Battle", path: "/boss-battle", icon: <Sword className="h-5 w-5" /> },
   { name: "Leaderboard", path: "/leaderboard", icon: <Trophy className="h-5 w-5" /> },
-  { name: "NFT", path: "/nft", icon: <Diamond className="h-5 w-5" /> },
+  { name: "NFT", path: "/nft", icon: <Store className="h-5 w-5" /> },
   { name: "Profile", path: "/profile", icon: <User className="h-5 w-5" /> },
 ];
 
@@ -46,11 +45,9 @@ export default function Navbar() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Lấy state từ store
   const walletAddress = useStore((state: { walletAddress: string }) => state.walletAddress);
   const setWalletAddress = useStore((state: { setWalletAddress: (address: string) => void }) => state.setWalletAddress);
 
-  // Theo dõi sự thay đổi kích thước màn hình
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
@@ -64,7 +61,6 @@ export default function Navbar() {
     };
   }, []);
 
-  // Kiểm tra xem ví đã được kết nối chưa khi component mount
   useEffect(() => {
     const savedWalletAddress = localStorage.getItem('walletAddress');
     if (savedWalletAddress) {
@@ -72,11 +68,8 @@ export default function Navbar() {
     }
   }, [setWalletAddress]);
 
-  // Xử lý kết nối ví
   const handleConnect = async () => {
     try {
-      // Kết nối với Petra wallet (Aptos)
-      // @ts-ignore - Petra có thể không được định nghĩa trong window
       const petra = window.aptos;
       
       if (!petra) {
@@ -88,11 +81,9 @@ export default function Navbar() {
         return;
       }
       
-      // Kết nối ví
       const response = await petra.connect();
       const address = response.address;
       
-      // Gọi API connect để lấy token và cập nhật user
       await connectWallet(address);
       
       // Cập nhật state
@@ -103,7 +94,6 @@ export default function Navbar() {
         description: "Wallet connected successfully",
       });
       
-      // Chuyển hướng đến trang profile nếu đang ở trang chủ
       if (pathname === "/") {
         navigate("/profile");
       }
@@ -117,13 +107,9 @@ export default function Navbar() {
     }
   };
   
-  // Xử lý ngắt kết nối ví
   const handleDisconnect = async () => {
     try {
-      // Gọi API để invalidate token
       await disconnectWallet();
-      
-      // Xóa địa chỉ ví khỏi state
       setWalletAddress("");
       
       toast({
@@ -131,7 +117,6 @@ export default function Navbar() {
         description: "Wallet disconnected successfully",
       });
       
-      // Chuyển về trang chủ
       navigate("/");
     } catch (error) {
       console.error("Failed to disconnect wallet:", error);

@@ -56,6 +56,21 @@ export interface QuestProps {
   onComplete?: (id: string) => void;
   isLoading?: boolean;
   hasActiveQuest?: boolean;
+  className?: string;
+  disabled?: boolean;
+  completionCriteria?: 'manual' | 'automatic' | 'verification';
+  completionInstructions?: string;
+  requiredLevel?: number;
+  workoutDetails?: Array<{
+    section: string;
+    duration: number;
+    exercises: Array<{
+      name: string;
+      time: string;
+      description: string;
+    }>;
+  }>;
+  onAccept?: (id: string) => void;
 }
 
 export function QuestCard({
@@ -73,7 +88,7 @@ export function QuestCard({
   completed = false,
   expiresAt,
   timeLeft,
-  type,
+  type = "server",
   locked = false,
   active = false,
   startedAt = null,
@@ -81,10 +96,18 @@ export function QuestCard({
   onStart,
   onComplete,
   isLoading = false,
-  hasActiveQuest = false
+  hasActiveQuest = false,
+  className,
+  disabled = false,
+  completionCriteria = "manual",
+  completionInstructions = "",
+  requiredLevel = 0,
+  workoutDetails = [],
+  onAccept
 }: QuestProps) {
   const [expanded, setExpanded] = useState(false);
   const [remainingTime, setRemainingTime] = useState<number | null>(null);
+  const [progressPercent, setProgressPercent] = useState(0);
 
   // Format timeLeft for expiration
   const formatTimeLeft = () => {
@@ -114,12 +137,21 @@ export function QuestCard({
     
     const startTime = new Date(startedAt).getTime();
     const endTime = startTime + (estimatedTime * 60 * 1000);
+    const totalDuration = estimatedTime * 60; // Tổng thời gian tính bằng giây
     
-    const updateRemainingTime = () => {
+    const updateProgress = () => {
       const now = new Date().getTime();
+      const elapsed = now - startTime;
+      const totalTime = (estimatedTime * 60 * 1000); // Tổng thời gian tính bằng mili giây
+      
+      // Tính phần trăm hoàn thành dựa trên thời gian thực đã trôi qua
+      const percent = Math.min(100, Math.floor((elapsed / totalTime) * 100));
       const timeRemaining = Math.max(0, Math.floor((endTime - now) / 1000));
       
+      console.log(`Progress: ${percent}%, Time elapsed: ${Math.floor(elapsed/1000)}s, Total: ${estimatedTime*60}s`);
+      
       setRemainingTime(timeRemaining);
+      setProgressPercent(percent);
       
       // Auto-complete quest when timer reaches 0
       if (timeRemaining === 0 && onComplete) {
@@ -128,12 +160,12 @@ export function QuestCard({
     };
     
     // Initialize and update every second
-    updateRemainingTime();
-    const interval = setInterval(updateRemainingTime, 1000);
+    updateProgress();
+    const interval = setInterval(updateProgress, 1000);
     
     return () => clearInterval(interval);
   }, [active, startedAt, estimatedTime, onComplete, id]);
-  
+
   // Category icon
   const getCategoryIcon = () => {
     switch (category) {
@@ -178,7 +210,7 @@ export function QuestCard({
   };
 
   return (
-    <Card className="relative overflow-hidden border-2 transition-all duration-300 hover:shadow-lg">
+    <Card className={`relative overflow-hidden border-2 transition-all duration-300 hover:shadow-lg ${className || ''}`}>
       {/* Quest Status Badge */}
       <div className="absolute right-3 top-3">
         {completed ? (
@@ -214,7 +246,7 @@ export function QuestCard({
             {getCategoryIcon()}
           </div>
           <CardTitle className="text-sm font-medium">
-            {type === 'personal' ? "Personal Quest" : "Community Quest"}
+            {type === 'personal' ? "Personal Quest" : "Server Quest"}
           </CardTitle>
         </div>
       </CardHeader>
@@ -223,58 +255,95 @@ export function QuestCard({
       <CardContent>
         <h3 className="text-lg font-bold">{title}</h3>
         
-        {/* Description with expand/collapse functionality */}
-        <div className="mt-1">
-          <p className={`text-sm text-muted-foreground ${expanded ? '' : 'line-clamp-2'}`}>
-            {description}
-          </p>
-          <button 
-            className="text-xs text-primary flex items-center mt-1 hover:text-primary/80 transition-colors"
-            onClick={() => setExpanded(!expanded)}
-          >
-            {expanded ? (
-              <>
-                <ChevronUp className="h-3 w-3 mr-1" />
-                <span>Show less</span>
-              </>
-            ) : (
-              <>
-                <ChevronDown className="h-3 w-3 mr-1" />
-                <span>Show more</span>
-              </>
-            )}
-          </button>
+        {/* Target (thay thế Objective) */}
+        <div className="mt-3 rounded-md bg-muted p-2">
+          <div className="text-xs text-muted-foreground">Target:</div>
+          <div className="font-medium">
+            {objective} 
+          </div>
+          
         </div>
         
-        {/* Objective */}
-        <div className="mt-3 rounded-md bg-muted p-2">
-          <div className="text-xs text-muted-foreground">Objective:</div>
-          <div className="font-medium">
-            {objective} {target} {unit}
+        {/* Workout Details - redesigned */}
+        {workoutDetails && workoutDetails.length > 0 && (
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-medium text-sm">Workout Details</h4>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setExpanded(!expanded)}
+                className="h-6 px-2 text-xs"
+              >
+                {expanded ? 'Hide' : 'Show'} Details
+              </Button>
+            </div>
+            
+            {/* Always show sections and their durations */}
+            <div className="rounded-md bg-secondary/30 p-2">
+              {workoutDetails.map((section, idx) => (
+                <div key={idx} className="flex justify-between items-center py-1 text-sm">
+                  <span>{section.section}</span>
+                  <span className="text-muted-foreground">{section.duration} mins</span>
+                </div>
+              ))}
+            </div>
+            
+            {/* Show full exercise details only when expanded */}
+            {expanded && (
+              <div className="bg-background/50 rounded-md p-3 mt-2 border">
+                {workoutDetails.map((section, idx) => (
+                  <div key={idx} className="mb-4 last:mb-0">
+                    <div className="font-semibold border-b pb-1 mb-2">{section.section} ({section.duration} mins)</div>
+                    <div className="space-y-3">
+                      {section.exercises.map((exercise, exIdx) => (
+                        <div key={exIdx} className="border-l-2 border-primary/50 pl-3">
+                          <div className="flex justify-between">
+                            <span className="font-medium">{exercise.name}</span>
+                            <span className="text-sm">{exercise.time}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">{exercise.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
+        )}
         
         {/* Active Quest Countdown Timer */}
         {active && remainingTime !== null && (
-          <div className="mt-3 rounded-md bg-purple-100 p-2">
-            <div className="text-xs text-purple-700">Time Remaining:</div>
-            <div className="font-bold text-purple-900">
-              {formatCountdownTime(remainingTime)}
+          <div className="mt-3">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-sm font-medium">{objective}: {target} {unit}</span>
+              <span className="text-sm font-medium flex items-center">
+                <Clock className="h-4 w-4 mr-1" />
+                {formatCountdownTime(remainingTime)}
+              </span>
             </div>
-            <div className="text-xs text-purple-700 mt-1">
-              Estimated Completion: {estimatedTime} minutes
+            
+            {/* Sử dụng div thay vì component Progress để hiển thị thanh tiến trình */}
+            <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary mt-1">
+              <div 
+                className="h-full bg-primary transition-all duration-1000" 
+                style={{ width: `${progressPercent}%` }}
+              />
             </div>
+            
+            <p className="text-xs text-center mt-1">
+              {remainingTime > 0 
+                ? `Đã hoàn thành ${progressPercent}% - Còn ${formatCountdownTime(remainingTime)}` 
+                : 'Có thể hoàn thành quest!'}
+            </p>
           </div>
         )}
         
         {/* Progress Bar (only show if not completed and not locked) */}
         {!completed && !locked && !active && (
           <div className="mt-3">
-            <div className="flex justify-between text-xs">
-              <span>Progress: {progress}/{target}</span>
-              <span>{Math.round((progress/target) * 100)}%</span>
-            </div>
-            <Progress value={(progress/target) * 100} className="mt-1 h-2" />
+            
           </div>
         )}
         
@@ -308,50 +377,57 @@ export function QuestCard({
         )}
       </CardContent>
       
-      {/* Card Actions */}
+      {/* Card Footer with Action Button */}
       <CardFooter className="pt-0">
         {completed ? (
-          <Button variant="outline" size="sm" className="w-full" disabled>
-            Completed
+          <Button variant="outline" className="w-full" disabled>
+            <CheckCircle2 className="h-4 w-4 mr-2" />
+            Complete
           </Button>
         ) : active ? (
-          <Button variant="secondary" size="sm" className="w-full" disabled>
-            <Timer className="mr-2 h-4 w-4" />
-            In Progress
-          </Button>
+          remainingTime && remainingTime > 0 ? (
+            <div className="w-full bg-muted rounded-md p-2 text-center">
+              <div className="text-xs text-muted-foreground">Time remaining</div>
+              <div className="text-base font-mono">{formatCountdownTime(remainingTime)}</div>
+            </div>
+          ) : (
+            <Button 
+              variant="default" 
+              className="w-full" 
+              onClick={() => onComplete?.(id)}
+              disabled={!onComplete}
+            >
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+              Complete Quest
+            </Button>
+          )
         ) : locked ? (
-          <Button variant="outline" size="sm" className="w-full" disabled>
-            Locked
-          </Button>
-        ) : onComplete && !hasActiveQuest ? (
-          <Button 
-            variant="default" 
-            size="sm" 
-            className="w-full" 
-            onClick={() => onComplete(id)}
-            disabled={isLoading}
-          >
-            {isLoading ? 'Completing...' : 'Complete Quest'}
-          </Button>
-        ) : onStart ? (
-          <Button 
-            variant="default" 
-            size="sm" 
-            className="w-full" 
-            onClick={() => onStart(id)}
-            disabled={isLoading || hasActiveQuest}
-            title={hasActiveQuest ? "You have an active quest already" : ""}
-          >
-            {isLoading ? 'Starting...' : (
-              <>
-                <Play className="mr-2 h-4 w-4" />
-                Start Quest ({estimatedTime} min)
-              </>
-            )}
+          <Button variant="outline" className="w-full" disabled>
+            <span>Locked</span>
           </Button>
         ) : (
-          <Button variant="outline" size="sm" className="w-full">
-            View Details
+          <Button 
+            variant="default" 
+            className="w-full" 
+            onClick={() => onStart?.(id)}
+            disabled={isLoading || hasActiveQuest || disabled}
+          >
+            {isLoading ? (
+              <span className="flex items-center">
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Starting...
+              </span>
+            ) : hasActiveQuest ? (
+              <span className="text-xs">Complete active quest first</span>
+            ) : (
+              <>
+                <Play className="h-4 w-4 mr-2" />
+                Start Quest
+              </>
+            )}
           </Button>
         )}
       </CardFooter>

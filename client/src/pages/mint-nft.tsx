@@ -51,11 +51,6 @@ export default function MintNFT() {
       try {
         // Generate a unique token ID
         const tokenId = `token-${Date.now()}`;
-        
-        // In a real implementation, this would interact with a blockchain
-        // For now, we just simulate with an API call
-        
-        // Sử dụng apiRequest thay vì fetch trực tiếp để đảm bảo token xác thực được gửi
         const response = await apiRequest("/api/users/mint-nft", {
           method: "POST",
           data: {
@@ -87,14 +82,12 @@ export default function MintNFT() {
       
       // Navigate to dashboard
       toast({
-        title: "Chuyển hướng",
-        description: "Bạn sẽ được chuyển đến dashboard sau 3 giây...",
+        title: "Redirecting",
+        description: "You will be redirected to dashboard in 3 seconds...",
       });
-      
-      // Tăng thời gian chờ để người dùng đọc thông báo
       setTimeout(() => {
         navigate("/dashboard");
-      }, 3000);
+      }, 1500);
     },
     onError: (error: Error) => {
       toast({

@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Home, Swords, Trophy, Award, User } from "lucide-react";
+import { Home, Swords, Trophy, Award, User, Sword, History } from "lucide-react";
 
 interface BottomNavItemProps {
   to: string;
@@ -27,15 +27,13 @@ const BottomNavItem = ({ to, icon, label, isActive }: BottomNavItemProps) => {
 
 export default function BottomNavigation() {
   const { pathname } = useLocation();
-
-  // Chỉ hiển thị trên thiết bị di động
   return (
     <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background border-t z-50">
       <div className="flex items-center justify-between h-16">
         <BottomNavItem 
           to="/" 
           icon={<Home className="h-5 w-5" />} 
-          label="Trang chủ" 
+          label="Home" 
           isActive={pathname === "/" || pathname === "/dashboard"}
         />
         
@@ -47,23 +45,32 @@ export default function BottomNavigation() {
         />
         
         <BottomNavItem 
-          to="/leaderboard" 
-          icon={<Trophy className="h-5 w-5" />} 
-          label="Xếp hạng" 
-          isActive={pathname === "/leaderboard"}
+          to="/boss-battle" 
+          icon={<Sword className="h-5 w-5" />} 
+          label="Boss" 
+          isActive={pathname === "/boss-battle"}
         />
         
         <BottomNavItem 
-          to="/achievements" 
-          icon={<Award className="h-5 w-5" />} 
-          label="Thành tựu" 
-          isActive={pathname === "/achievements"}
+          to="/boss-history" 
+          icon={<History className="h-5 w-5" />} 
+          label="History" 
+          isActive={pathname === "/boss-history"}
         />
+        
+        <BottomNavItem 
+          to="/leaderboard" 
+          icon={<Trophy className="h-5 w-5" />} 
+          label="Leaderboard" 
+          isActive={pathname === "/leaderboard"}
+        />
+        
+        
         
         <BottomNavItem 
           to="/profile" 
           icon={<User className="h-5 w-5" />} 
-          label="Hồ sơ" 
+          label="Profile" 
           isActive={pathname === "/profile"}
         />
       </div>

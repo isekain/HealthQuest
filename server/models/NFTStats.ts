@@ -10,7 +10,6 @@ const NFTStatsSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  
   STR: {
     type: Number,
     default: 10
@@ -65,8 +64,7 @@ const NFTStatsSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  
-  // Legacy fields for backward compatibility
+ 
   strength: {
     type: Number,
     default: 10
